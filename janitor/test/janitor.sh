@@ -32,7 +32,13 @@ trap cleanup EXIT
 api_sum() { mp "$MP/messages?limit=100000" | jq '[.messages[].Size] | add // 0'; }
 api_count() { mp "$MP/messages?limit=1" | jq .total; }
 api_seqs() { mp "$MP/messages?limit=100000" | jq -r '.messages[].Subject' | sed -n 's/^janitor-A-//p' | sort -n | tr '\n' ' '; }
-seed() { MSYS_NO_PATHCONV=1 $DC run --rm -T -v "$(cygpath -m "$PWD")/janitor/test:/test:ro" --entrypoint node janitor /test/seed.mjs "$@" 2>&1 | tail -1; }
+TEST_DIR="$PWD/janitor/test"
+command -v cygpath > /dev/null && TEST_DIR=$(cygpath -m "$TEST_DIR")
+seed() {
+  local out
+  out=$(MSYS_NO_PATHCONV=1 $DC run --rm -T -v "$TEST_DIR:/test:ro" --entrypoint node janitor /test/seed.mjs "$@" 2>&1 | tail -1)
+  case "$out" in seeded*) ;; *) fail "seed $*" "$out";; esac
+}
 cycles() { $DC logs --no-log-prefix janitor 2>/dev/null | grep '^{' | jq -c 'select(.event == "cycle")'; }
 wait_cycle() {
   for _ in $(seq 1 40); do
