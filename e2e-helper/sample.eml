@@ -1,0 +1,27 @@
+From: qa-sender@example.com
+To: qa+t-l01@poc.test
+Subject: =?UTF-8?B?4LiX4LiU4Liq4Lit4Lia4LmD4Lia4LmB4LiI4LmJ4LiH4Lir4LiZ4Li14LmJIElOVi0wMDAx?=
+Message-ID: <l01@poc.test>
+Date: Thu, 08 Oct 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BOUNDARY_poc_synthetic"
+
+--BOUNDARY_poc_synthetic
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+4Liq4Lin4Lix4Liq4LiU4Li1IOC4meC4teC5iOC4hOC4t+C4reC4guC5ieC4reC4oeC4ueC4peC4
+quC4seC4h+C5gOC4hOC4o+C4suC4sOC4q+C5jA0KLmxpbmUgdGhhdCBzdGFydHMgd2l0aCBhIGRv
+dA0K
+
+--BOUNDARY_poc_synthetic
+Content-Type: application/pdf; name="inv0001.pdf"
+Content-Disposition: attachment; filename="inv0001.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjEKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBv
+Ymo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlw
+ZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgMjAwIDIwMF0+PmVuZG9iagp0cmFpbGVy
+PDwvUm9vdCAxIDAgUi9TaXplIDQ+PgolJUVPRgo=
+
+--BOUNDARY_poc_synthetic--

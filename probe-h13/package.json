@@ -1,0 +1,12 @@
+{
+  "name": "capture-h13",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local"
+  },
+  "devDependencies": {
+    "wrangler": "4.148.0"
+  }
+}

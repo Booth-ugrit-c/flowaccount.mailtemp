@@ -1,0 +1,79 @@
+name: capture-poc
+services:
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MAILPIT_HOST_PORT:-8025}:8025"
+    environment:
+      MP_MAX_MESSAGES: "0"
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGE_SIZE: "30"
+      MP_UI_AUTH_FILE: /run/secrets/ui_auth
+      MP_WEBROOT: admin
+    volumes:
+      - mailpit-data:/data
+      - ./secrets/ui_auth:/run/secrets/ui_auth:ro
+    networks: [capture-net]
+  bridge:
+    build: ./bridge
+    image: ${BRIDGE_IMAGE:-capture-bridge:poc}
+    restart: unless-stopped
+    depends_on: [mailpit]
+    env_file: ./.env
+    environment:
+      MAILPIT_HOST: mailpit
+      MAILPIT_PORT: "1025"
+      SEEN_DB: /data/seen.sqlite
+    ports:
+      - "127.0.0.1:${BRIDGE_HOST_PORT:-8080}:8080"
+    volumes:
+      - bridge-data:/data
+    networks: [capture-net]
+  inbox:
+    build: ./inbox
+    image: ${INBOX_IMAGE:-capture-inbox:poc}
+    restart: unless-stopped
+    depends_on: [mailpit]
+    env_file: ./secrets/inbox.env
+    environment:
+      MAILPIT_URL: http://mailpit:8025/admin
+      USERS_DB: /data/users.sqlite
+    ports:
+      - "127.0.0.1:${INBOX_HOST_PORT:-8090}:8090"
+    volumes:
+      - inbox-data:/data
+    networks: [capture-net]
+  janitor:
+    build: ./janitor
+    image: ${JANITOR_IMAGE:-capture-janitor:poc}
+    restart: unless-stopped
+    depends_on: [mailpit]
+    env_file: ./secrets/janitor.env
+    environment:
+      MAILPIT_URL: http://mailpit:8025/admin
+      MAIL_QUOTA_BYTES: ${MAIL_QUOTA_BYTES:-21474836480}
+      HIGH_WATERMARK_PCT: ${HIGH_WATERMARK_PCT:-90}
+      LOW_WATERMARK_PCT: ${LOW_WATERMARK_PCT:-70}
+      INTERVAL_SECONDS: ${INTERVAL_SECONDS:-60}
+      DRY_RUN: ${DRY_RUN:-0}
+      RUN_ONCE: ${RUN_ONCE:-0}
+      RESCAN_HOURS: ${RESCAN_HOURS:-6}
+    volumes:
+      - mailpit-data:/mailpit-data:ro
+    networks: [capture-net]
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: [tunnel]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --protocol http2 run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on: [bridge]
+    networks: [capture-net]
+volumes:
+  mailpit-data:
+  bridge-data:
+  inbox-data:
+networks:
+  capture-net:
