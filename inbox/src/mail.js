@@ -4,6 +4,7 @@ const AUTH = "Basic " + Buffer.from(`${process.env.MAILPIT_UI_USER}:${process.en
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export const address = (username) => `${username}@${DOMAIN}`;
+export const probeMailpit = (timeoutMs) => fetch(`${BASE}/info`, { headers: { Authorization: AUTH }, signal: AbortSignal.timeout(timeoutMs) });
 export const mailpit = (path) => fetch(BASE + path, { headers: { Authorization: AUTH }, signal: AbortSignal.timeout(10_000) });
 
 export function owns(username, recipient) {
