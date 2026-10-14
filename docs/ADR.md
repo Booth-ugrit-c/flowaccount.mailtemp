@@ -22,7 +22,7 @@ The project receives real internet mail for a test domain and shows it in a web 
 | ADR-012 | Retention: 20 GiB quota janitor | Accepted (measured) | 2026-10-09 |
 | ADR-013 | Secrets isolated per container | Accepted | 2026-10-08 |
 | ADR-014 | One-command setup | Accepted | 2026-10-09 |
-| ADR-015 | Public repository, CI and branch protection | Accepted | 2026-10-09 |
+| ADR-015 | Public repository, CI and branch protection | Accepted (approvals 0) | 2026-10-14 |
 | ADR-016 | System-down alerts on the web page, no notifications | Accepted | 2026-10-14 |
 
 ---
@@ -303,13 +303,16 @@ The project receives real internet mail for a test domain and shows it in a web 
   - `test`: the full stack plus `isolation.sh` and `janitor.sh` on ubuntu-latest.
 - `main` is protected:
   - required checks `build` and `test` (strict)
-  - 1 approving review, with stale approvals dismissed
+  - a pull request is required, but 0 approving reviews (owner decision 2026-10-14: single-account project, and an owner cannot self-approve)
   - enforced for admins
   - no force push or deletion
 
-**Consequences.** The repo owner cannot self-approve, so a second account with write access approves.
+**Consequences.**
+- Merges are gated by green `build` + `test` only. `strict` (the branch must be up to date with `main`) and `enforce_admins` stay on, and force pushes and deletions stay blocked.
+- No human review is enforced while one account runs the project.
+- When the hosting team takes over, raise required approvals to 1 so a second person reviews every change.
 
-**Status.** Accepted. Before publishing, a secret scan found 0 live values in the tracked files.
+**Status.** Accepted (approvals reduced from 1 to 0 on 2026-10-14). Measured protection: `{"approvals":0,"checks":["build","test"],"enforce_admins":true,"strict":true}`. Before publishing, a secret scan found 0 live values in the tracked files.
 
 ## ADR-016 System-down alerts on the web page, no notifications
 
