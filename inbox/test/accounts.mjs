@@ -26,6 +26,7 @@ const openAddress = async (name) => {
 await page.goto(base);
 await openAddress(nameA);
 check("first address opens its inbox", await hasMail(subjectA));
+check("status banner stays hidden while the services are healthy", await page.locator("#statusBanner").isHidden());
 check("account list shows the first address as active", (await rows().count()) === 1 && (await activeName()) === nameA);
 
 await side.locator("[data-act=add]").click();

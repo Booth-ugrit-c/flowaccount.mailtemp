@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { openAccounts, limiter, usernameError, MAX_ACCOUNTS } from "./accounts.js";
+import { currentStatus } from "./status.js";
 import { address, mailpit, listFor, ownMessage, scrubRaw, scrubHeaders } from "./mail.js";
 
 const INBOX_KEY = process.env.INBOX_KEY;
@@ -154,8 +155,9 @@ async function messageRoute(req, res, username, segments) {
 async function route(req, res) {
   const { pathname } = new URL(req.url, "http://x");
   if (req.method === "GET" && pathname === "/healthz") return send(res, 200, "ok", "text/plain");
+  if (req.method === "GET" && pathname === "/api/status") return send(res, 200, await currentStatus());
   if (req.method === "GET" && pathname === "/favicon.ico") return send(res, 204, "", "text/plain");
-  if (req.method === "GET" && pathname === "/") {
+  if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
     return send(res, 200, page, "text/html; charset=utf-8", { "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "no-referrer" });
   }
   if (req.method === "GET" && pathname.startsWith("/vendor/")) {

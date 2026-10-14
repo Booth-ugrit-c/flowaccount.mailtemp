@@ -285,6 +285,11 @@ BROWSER_RANDOM=$(grep '^INFO  random-name ' "$TMP/accounts.txt" | cut -d' ' -f4 
 RANDOM_NAMES="$RANDOM_NAMES $BROWSER_RANDOM"
 [ "$ACCOUNTS_RC" = "0" ] || { fail "browser account checks" "script exited $ACCOUNTS_RC"; head -c 600 "$TMP/accounts.txt"; }
 expect "no Thai text in the served UI files" "$(LC_ALL=C.UTF-8 grep -rlIP '[\x{0E00}-\x{0E7F}]' inbox/src | wc -l | tr -d ' ')" 0
+expect "GET /api/status without a cookie -> 200" "$(curl -s -o "$TMP/status.json" -w '%{http_code}' "$INBOX/api/status")" 200
+expect "status reports mailpit and bridge ok" "$(jq -c '[.mailpit, .bridge]' "$TMP/status.json")" '["ok","ok"]'
+expect "status carries a checkedAt timestamp" "$(jq -r '.checkedAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T")' "$TMP/status.json")" true
+expect "status exposes nothing but mailpit, bridge and checkedAt" "$(jq -c 'keys' "$TMP/status.json")" '["bridge","checkedAt","mailpit"]'
+expect "/index.html serves the page like / (the edge worker routes both)" "$(curl -s -o /dev/null -w '%{http_code}' "$INBOX/index.html")" 200
 expect "vendored stylesheet is served without auth" "$(curl -s -o /dev/null -w '%{http_code}' "$INBOX/vendor/app.css")" 200
 expect "unknown vendor path -> 404" "$(curl -s -o /dev/null -w '%{http_code}' "$INBOX/vendor/nope.js")" 404
 expect "docker compose port inbox 8090" "$($COMPOSE port inbox 8090 | tr -d '\r')" "127.0.0.1:${INBOX_HOST_PORT:-8090}"
