@@ -130,6 +130,8 @@ sed -i "s|^TUNNEL_TOKEN=.*|TUNNEL_TOKEN=$TOKEN|" .env && unset TOKEN
 docker compose --profile tunnel up -d --force-recreate cloudflared
 ```
 
+**CI credential rotation or leak** (the `ci` user used by the `live-smoke` workflow). Remove the `ci:` line from `secrets/ui_auth`, delete `secrets/ci.env`, run `bash setup.sh` (it adds a new `ci` line and writes a new `ci.env`), then `docker compose restart mailpit` (Mailpit reads the file only at start). Update the GitHub secrets `MAILPIT_CI_USER` and `MAILPIT_CI_PASSWORD` from the new `secrets/ci.env`. Nothing else depends on this credential, so the apps and `root` are unaffected.
+
 **`/admin` password change.** Edit the `root:` line in `secrets/ui_auth`, then run `docker compose up -d --force-recreate mailpit`. Keep the `qa:` line unchanged: the apps use it, and it must match `MAILPIT_UI_PASSWORD` in `.env`, `secrets/inbox.env` and `secrets/janitor.env`.
 
 ## 7. After a host reboot

@@ -80,3 +80,29 @@ async function load(get: (path: string) => Promise<Response>, id: string): Promi
     raw,
   };
 }
+
+export interface MessageMetadata {
+  id: string;
+  subject: string;
+  created: Date;
+  size: number;
+  attachments: AttachmentInfo[];
+}
+
+// Metadata only: no raw body and no attachment bytes are downloaded.
+export async function findMessageMetadata(tag: string, options: Omit<WaitOptions, "receivedAfter" | "timeoutMs"> = {}): Promise<MessageMetadata[]> {
+  const get = client({ receivedAfter: new Date(0), timeoutMs: 0, ...options });
+  const search = await (await get(`/api/v1/search?query=${encodeURIComponent(`tag:${tag}`)}`)).json();
+  const found: MessageMetadata[] = [];
+  for (const summary of search.messages as { ID: string }[]) {
+    const detail = await (await get(`/api/v1/message/${summary.ID}`)).json();
+    found.push({
+      id: summary.ID,
+      subject: detail.Subject,
+      created: new Date(detail.Date ?? detail.Created),
+      size: detail.Size,
+      attachments: (detail.Attachments as { FileName: string; Size: number; Checksums: { SHA256: string } }[]).map((a) => ({ name: a.FileName, size: a.Size, sha256: a.Checksums.SHA256 })),
+    });
+  }
+  return found;
+}

@@ -33,7 +33,7 @@ git clone https://github.com/<owner>/<repo>.git && cd <repo>
 export ADMIN_PASSWORD='<choose-a-strong-password>'
 bash setup.sh
 ```
-Expected output: one `created …` line each for `.env`, `secrets/ui_auth`, `secrets/inbox.env` and `secrets/janitor.env`, then `next: docker compose up -d`. If you do not set `ADMIN_PASSWORD`, a random one is printed **once**; save it. Re-running `setup.sh` never overwrites these files.
+Expected output: one `created …` line each for `.env`, `secrets/ui_auth`, `secrets/inbox.env`, `secrets/janitor.env` and `secrets/ci.env`, plus a one-time `ci / <password>` line, then `next: docker compose up -d`. If you do not set `ADMIN_PASSWORD`, a random one is printed **once**; save it. Re-running `setup.sh` never overwrites these files; the only change it makes to an existing file is appending the `ci:` line to `secrets/ui_auth` when it is missing.
 
 ### H2. Start the stack (without the tunnel)
 ```bash
@@ -155,6 +155,15 @@ Expected deploy output: `Deployed mailpit-status-fallback triggers` followed by 
 
 Verify: stop the tunnel (`docker compose stop cloudflared`) and open `https://mailpit.<DOMAIN>/`. The fallback page must show (`HTTP 503`, title `Mailpit - system is down`). Measured: with no connector, the origin answers `530`. `/api/status` returns the raw `530` by design. Then start it again (`docker compose --profile tunnel up -d`); the page reloads into the app within about 15 s.
 
+## A. CI access (live smoke)
+
+CI reads captured mail with its own Mailpit user `ci`, not `root`.
+
+1. On a new host, `bash setup.sh` already created the `ci` user and `secrets/ci.env`. On an existing host, `bash setup.sh` appends the `ci:` line to `secrets/ui_auth`, prints the password once and creates `secrets/ci.env`. Mailpit reads `secrets/ui_auth` only at start (measured: the new user got 401 for 23 s and 200 right after a restart), so run `docker compose restart mailpit` (a few seconds; the Worker queues mail meanwhile).
+2. Check: `curl -s -o /dev/null -w '%{http_code}' --doh-url https://cloudflare-dns.com/dns-query -u "ci:<password>" https://mailpit.<DOMAIN>/admin/api/v1/info` gives `200`, and the same with a wrong password gives `401`.
+3. In the GitHub repository settings add the Actions secrets `MAILPIT_CI_USER` (value `ci`) and `MAILPIT_CI_PASSWORD` (the value in `secrets/ci.env`).
+4. Run the `live-smoke` workflow once from the Actions tab. It is not a required check: it depends on this host being up, and it skips with a notice while the secrets are missing.
+
 ## V. Verification checklist
 
 Use **DNS-over-HTTPS** for every DNS check. Some ISPs intercept port-53 DNS. We measured a query to `192.0.2.1`, where no server exists, still getting an answer, so `nslookup`/`dig` showed a stale "parked" answer for hours after the public delegation had already changed.
@@ -169,6 +178,7 @@ Use **DNS-over-HTTPS** for every DNS check. Some ISPs intercept port-53 DNS. We 
 | Bridge other paths | `curl -s -o /dev/null -w '%{http_code}' --doh-url https://cloudflare-dns.com/dns-query https://bridge.<DOMAIN>/healthz` | `404` |
 | Real mail end to end | send a mail from any external mailbox to `hello@<DOMAIN>`, open `https://mailpit.<DOMAIN>/`, type `hello` | the mail appears within about 1 min (the Refresh button has a 5 s cooldown) |
 | Plus address | send to `hello+t1@<DOMAIN>` | it appears in `hello`'s inbox |
+| CI credential | `curl -s -o /dev/null -w '%{http_code}' --doh-url https://cloudflare-dns.com/dns-query -u ci:<password> https://mailpit.<DOMAIN>/admin/api/v1/info` | `200` (wrong password: `401`) |
 | Isolation suite | `bash inbox/test/isolation.sh` (needs `npm ci` in `e2e-helper` plus `npx playwright install chromium`) | `result: 0 failure(s)` |
 | Janitor suite | `bash janitor/test/janitor.sh` | `result: 0 failure(s)` (runs in an isolated project) |
 

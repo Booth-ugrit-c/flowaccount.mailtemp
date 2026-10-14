@@ -24,6 +24,7 @@ The project receives real internet mail for a test domain and shows it in a web 
 | ADR-014 | One-command setup | Accepted | 2026-10-09 |
 | ADR-015 | Public repository, CI and branch protection | Accepted (approvals 0) | 2026-10-14 |
 | ADR-016 | System-down alerts on the web page, no notifications | Accepted | 2026-10-14 |
+| ADR-017 | Separate CI credential for the Mailpit API | Accepted | 2026-10-14 |
 
 ---
 
@@ -282,6 +283,7 @@ The project receives real internet mail for a test domain and shows it in a web 
 | inbox (public-facing) | `secrets/inbox.env` | `INBOX_KEY` and the `qa` credentials only; never `HMAC_KEY` or `TUNNEL_TOKEN` |
 | janitor | `secrets/janitor.env` | the `qa` credentials |
 | cloudflared | `.env` | `TUNNEL_TOKEN` only |
+| GitHub Actions `live-smoke` | repository secrets | the `ci` credential only (from `secrets/ci.env`; nothing on the host reads that file) |
 
 **Status.** Accepted. Verified by listing the environment variable names inside each container.
 
@@ -289,7 +291,7 @@ The project receives real internet mail for a test domain and shows it in a web 
 
 **Decision.**
 - `docker-compose.yml` sits at the repo root with `name: capture-poc`.
-- `bash setup.sh` creates `.env`, `secrets/ui_auth`, `secrets/inbox.env` and `secrets/janitor.env` with random values. It never overwrites existing files.
+- `bash setup.sh` creates `.env`, `secrets/ui_auth`, `secrets/inbox.env` and `secrets/janitor.env` with random values. It never overwrites existing files; the only edit it makes to one is appending the `ci:` line to `secrets/ui_auth` when it is missing (ADR-017).
 - Host ports and image tags can be overridden through environment variables.
 
 **Status.** Accepted. Verified on a clean copy: `setup.sh`, then `docker compose up -d`, gave every service healthy and `/admin` 401 without auth and 200 with the generated password.
@@ -333,3 +335,19 @@ The project receives real internet mail for a test domain and shows it in a web 
 - (−) `/admin` is not covered: with no connector it shows Cloudflare error 1033.
 
 **Status.** Accepted. Deployed as Worker `mailpit-status-fallback` on routes `<host>/` and `<host>/index.html`. Deploy steps are in `runbook-setup.md` C6.
+
+## ADR-017 Separate CI credential for the Mailpit API
+
+**Context.** E2E specs address `qa+<test-id>@<domain>`, which the public inbox cannot read by design (reserved names), so CI reads captured mail through the Mailpit API at `/admin/api/v1`. Using `root` or `qa` for that would tie CI to the credential people use or to the one the apps share.
+
+**Decision.**
+- `setup.sh` adds a `ci:<random 24 hex>` user to `secrets/ui_auth` and writes it to `secrets/ci.env` (gitignored). The values become the GitHub secrets `MAILPIT_CI_USER` and `MAILPIT_CI_PASSWORD`.
+- A `live-smoke` workflow (manual and on push to `main`) runs `e2e-helper/live-smoke.spec.ts` against the public API. It is not a required check because it needs the host to be up, and it skips with a notice when the secrets are missing.
+
+**Consequences.**
+- (+) The credential can be rotated alone (runbook-incident section 6) without touching `root`, `qa` or the apps, and CI access can be told apart from people and apps.
+- (−) Mailpit basic auth has no per-user scope: `ci` can do everything `root` can, including delete. The "read only" nature is the spec's discipline, not an enforcement. The separation buys rotation and attribution, nothing more.
+- **Measured:** Mailpit reads the auth file only at start: a user appended to the file got 401 for 23 s and 200 after a restart. Adding the user to a running host therefore needs `docker compose restart mailpit` (a few seconds).
+- CI jobs that run `setup.sh` on an ephemeral stack print a generated `ci` password in the public log; that stack is thrown away, so the value is worthless.
+
+**Status.** Accepted. Verified on the live host: `ci` gets 200 and a wrong password 401 on `/admin/api/v1/info`, `root` and `qa` still 200, and the spec passes with the CI credential.
