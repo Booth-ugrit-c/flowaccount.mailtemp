@@ -8,6 +8,7 @@ Receives real internet mail for a domain and gives every visitor a private inbox
 | `bridge/` | Node 22 service: verifies the signature, relays the mail to Mailpit over SMTP |
 | `inbox/` | Node 22 web app: create-or-open an address, switch addresses, read mail |
 | `e2e-helper/` | Playwright helper for reading captured mail in tests |
+| `status-worker/` | Optional Cloudflare Worker that shows a "system is down" page when the origin is unreachable (not deployed by the repo) |
 | `tools/` | Local test scripts and the live Cloudflare scripts (`tools/live/`) |
 
 ## Quickstart
@@ -47,6 +48,31 @@ docker compose --profile tunnel up -d
 | `secrets/inbox.env` | `INBOX_KEY` (signs the session cookie) and the `qa` credentials; only the inbox container reads it |
 
 Mailpit options used: `MP_MAX_MESSAGE_SIZE=30` (MB), `MP_MAX_MESSAGES=0` (no count cap; the default would keep only 500), `MP_DATABASE=/data/mailpit.db`, `MP_UI_AUTH_FILE=/run/secrets/ui_auth`, `MP_WEBROOT=admin`. There is no age expiry: the `janitor` service frees space by quota.
+
+## Service status and outage alerts
+
+The page tells the user when something is down. No notifications are sent; the alert is the page itself.
+
+`GET /api/status` (no login, always HTTP 200) returns `{"mailpit":"ok|down","bridge":"ok|down","checkedAt":"<ISO time>"}`. Mailpit is checked through its API at `MAILPIT_URL`, the bridge at `BRIDGE_HEALTH_URL` (default `http://bridge:8080/healthz`). Each check has a 1 s timeout and the result is cached for 5 s. The response carries no internal detail.
+
+The page polls it every 5 s (the same timer as the mail list), on the entry card and in the inbox, and shows a banner that disappears when the service recovers:
+
+| Condition | Banner |
+|---|---|
+| Mailpit down | red: "Inbox service is down. Your mail is safe and will appear when it is back." |
+| Bridge down | yellow: "New mail is delayed. It is queued and will arrive when the service recovers." |
+| The browser cannot reach the app after the page has loaded (fetch fails, or the edge answers 502/503/504/520-530) | red: "Lost connection to the mail service. Retrying..." |
+
+Detection takes up to about 10 s (5 s cache plus the 5 s poll).
+
+### Edge fallback (`status-worker/`)
+
+If the PC, the tunnel or the app is down, the browser cannot load the page at all, so no in-page banner is possible. `status-worker/` is a small Cloudflare Worker that sits in front of the page: it fetches the origin, and when that throws or answers 502/503/504/520-530 (a tunnel without a connector answers 530) it serves a self-contained "System is down, mail is queued" page (HTTP 503, inline CSS, no external assets) that retries every 15 s and reloads when the service is back. Everything else passes through untouched.
+
+- Deploy it on exactly two routes, `<host>/` and `<host>/index.html` (already set in `status-worker/wrangler.toml`; change the host and `zone_name` for your domain). Do not route `/api/*` or a wildcard: the status polling would count against the Workers request quota.
+- Deploy with `cd status-worker && npx wrangler deploy` using your own Cloudflare account. The repo never deploys it.
+- Tests (no dependencies): `node --test "status-worker/test/*.test.js"`; CI runs them in the `build` job.
+- Outage test for the banners: `bash inbox/test/outage.sh` stops and starts services of an isolated compose project (`outagecheck`, ports 38025/38080/38090); it never touches the running stack.
 
 ## Mail quota (janitor)
 

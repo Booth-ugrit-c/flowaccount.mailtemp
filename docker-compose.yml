@@ -39,6 +39,7 @@ services:
     environment:
       MAILPIT_URL: http://mailpit:8025/admin
       USERS_DB: /data/users.sqlite
+      BRIDGE_HEALTH_URL: ${BRIDGE_HEALTH_URL:-http://bridge:8080/healthz}
     ports:
       - "127.0.0.1:${INBOX_HOST_PORT:-8090}:8090"
     volumes:

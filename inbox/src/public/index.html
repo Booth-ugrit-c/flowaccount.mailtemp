@@ -23,6 +23,7 @@
 <style>
 #preview{width:100%;height:calc(100vh - 380px);min-height:320px;border:0;background:#fff}
 .btn-copy{--bs-btn-color:var(--bs-body-bg);--bs-btn-bg:var(--bs-body-color);--bs-btn-border-color:var(--bs-body-color);--bs-btn-hover-color:var(--bs-body-bg);--bs-btn-hover-bg:var(--bs-emphasis-color);--bs-btn-hover-border-color:var(--bs-emphasis-color);--bs-btn-active-color:var(--bs-body-bg);--bs-btn-active-bg:var(--bs-emphasis-color);--bs-btn-active-border-color:var(--bs-emphasis-color)}
+#entryView,#appView{min-height:0}
 .user-wrap{width:1%;min-width:0}
 .user-wrap #user{padding-right:2.5rem}
 .user-wrap #user:focus{position:relative;z-index:5}
@@ -33,8 +34,9 @@
 </head>
 <body class="h-100">
 <div class="container-fluid h-100 d-flex flex-column" id="app">
+  <div id="statusBanner" class="alert alert-danger rounded-0 border-0 mb-0 text-center py-2 small flex-shrink-0 d-none" style="margin-left:calc(var(--bs-gutter-x) * -.5);margin-right:calc(var(--bs-gutter-x) * -.5)" role="status"></div>
 
-  <div id="entryView" class="d-none flex-column h-100">
+  <div id="entryView" class="d-none flex-column flex-fill">
     <div class="navbar navbar-expand-lg row flex-shrink-0 bg-primary text-white d-print-none" data-bs-theme="dark">
       <div class="col-auto"><a href="#/" class="navbar-brand text-white me-0"><img src="/vendor/mailpit.svg" alt="Mailpit"><span class="ms-2">Mailpit</span></a></div>
     </div>
@@ -65,7 +67,7 @@
     </div>
   </div>
 
-  <div id="appView" class="d-none flex-column h-100">
+  <div id="appView" class="d-none flex-column flex-fill">
     <div id="navList" class="navbar navbar-expand-lg row flex-shrink-0 bg-primary text-white d-print-none" data-bs-theme="dark">
       <div class="col-xl-2 col-md-3 col-auto pe-0"><a href="#/" class="navbar-brand text-white me-0"><img src="/vendor/mailpit.svg" alt="Mailpit"><span class="ms-2 d-none d-sm-inline">Mailpit</span></a></div>
       <div class="col col-md-4k col-lg-5 col-xl-6">
@@ -166,6 +168,14 @@ let messages = [];
 let current = null;
 let tab = "text";
 let timer = null;
+let ticking = false;
+let connectionLost = false;
+let serviceStatus = { mailpit: "ok", bridge: "ok" };
+const BANNERS = {
+  lost: ["danger", "Lost connection to the mail service. Retrying…"],
+  mailpit: ["danger", "Inbox service is down. Your mail is safe and will appear when it is back."],
+  bridge: ["warning", "New mail is delayed. It is queued and will arrive when the service recovers."],
+};
 
 const person = (p) => (p && p.Name ? p.Name : p?.Address ?? "");
 const people = (list) => (list ?? []).map((p) => (p.Name ? `${p.Name} <${p.Address}>` : p.Address)).join(", ");
@@ -377,7 +387,6 @@ async function download(path, fileName) {
 }
 
 function showEntry() {
-  if (!me) clearInterval(timer);
   toggleFlex($("#appView"), false);
   toggleFlex($("#entryView"), true);
   $("#cancelRow").classList.toggle("d-none", !me);
@@ -426,9 +435,46 @@ async function route() {
 const REFRESH_COOLDOWN_SECONDS = 5;
 let cooldownTimer = null;
 
+function isGatewayFailure(res) {
+  const gateway = [502, 503, 504].includes(res.status) || (res.status >= 520 && res.status <= 530);
+  return gateway && !(res.headers.get("content-type") ?? "").includes("application/json");
+}
+
+function renderBanner() {
+  const key = connectionLost ? "lost" : serviceStatus.mailpit !== "ok" ? "mailpit" : serviceStatus.bridge !== "ok" ? "bridge" : null;
+  const banner = $("#statusBanner");
+  banner.classList.toggle("d-none", key === null);
+  if (key === null) return;
+  const [level, text] = BANNERS[key];
+  banner.className = `alert alert-${level} rounded-0 border-0 mb-0 text-center py-2 small flex-shrink-0`;
+  banner.textContent = text;
+}
+
+async function pollStatus() {
+  try {
+    const res = await fetch("/api/status", { cache: "no-store" });
+    if (isGatewayFailure(res)) connectionLost = true;
+    else if (res.ok) { serviceStatus = await res.json(); connectionLost = false; }
+  } catch {
+    connectionLost = true;
+  }
+  renderBanner();
+}
+
+async function tick() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    await pollStatus();
+    if (me) await refresh();
+  } finally {
+    ticking = false;
+  }
+}
+
 function startPolling() {
   clearInterval(timer);
-  timer = setInterval(refresh, 5000);
+  timer = setInterval(tick, 5000);
 }
 
 async function manualRefresh() {
@@ -457,8 +503,7 @@ async function enter(account) {
   hideEntry();
   await refresh();
   await route();
-  clearInterval(timer);
-  timer = setInterval(refresh, 5000);
+  startPolling();
 }
 
 document.addEventListener("click", async (e) => {
@@ -548,6 +593,8 @@ $("#search").oninput = () => { if (me && !current) renderList(); else if (me) re
 window.addEventListener("hashchange", route);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeMenu(); $("#downloadMenu").classList.remove("show"); } });
 
+startPolling();
+pollStatus();
 (async () => {
   const res = await fetch("/api/me");
   if (res.ok) enter(await res.json());
