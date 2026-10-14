@@ -2,6 +2,8 @@
 
 Receives real internet mail for a domain and gives every visitor a private inbox on a Mailpit-styled web page. Mail goes Cloudflare Email Routing -> Worker -> tunnel -> `bridge` -> Mailpit. The `inbox` app shows each visitor only mail addressed to their own address; the real Mailpit UI is admin-only at `/admin/`.
 
+Version `1.0.0`. Release notes: [CHANGELOG.md](CHANGELOG.md).
+
 | Folder | What it is |
 |---|---|
 | `worker/` | Cloudflare Email Worker that signs and forwards each mail to the bridge |
