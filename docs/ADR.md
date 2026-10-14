@@ -317,9 +317,16 @@ The project receives real internet mail for a test domain and shows it in a web 
 
 **Decision.**
 - The `inbox` app serves `GET /api/status` → `{mailpit, bridge}` as `ok` or `down`, with 1 s timeouts and a 5 s cache. The page shows a banner:
-  - Mailpit down: "Inbox service is down…"
-  - bridge down: "New mail is delayed…"
-  - browser lost the app: "Lost connection…"
+  - Mailpit down: "Inbox service is down. Your mail is safe and will appear when it is back."
+  - bridge down: "New mail is delayed. It is queued and will arrive when the service recovers."
+  - browser lost the app: "Lost connection to the mail service. Retrying…"
 - When the host or tunnel is down the page cannot load at all. A small edge Worker (`status-worker/`) runs **only** on routes `<host>/` and `<host>/index.html`, so API polling never uses Worker quota. It passes the origin through, and serves a self-contained "service is down, mail is queued" page when the origin throws or returns 502–504 or 520–530.
 
-**Status.** Accepted. Built in a separate change; deploy steps are in `runbook-setup.md`.
+**Consequences.**
+- (+) **Measured:** with a tunnel that has no connector, the origin answers `530`, and the Worker on `/` serves its fallback: `HTTP 503`, `<title>Mailpit - system is down</title>`. Measured on a temporary test host, since removed.
+- (+) **Measured:** healthy traffic passes through: `/` returns 200 with the app page, and `/index.html` returns 200.
+- (+) **Measured detection latency:** about 7–9 s for the Mailpit and bridge banners (5 s status cache + 5 s poll), and about 1.3 s for "Lost connection" when the app is unreachable.
+- (−) A non-root path such as `/api/status` returns the raw `530` by design. Once the page is loaded, the in-page banner covers that case.
+- (−) `/admin` is not covered: with no connector it shows Cloudflare error 1033.
+
+**Status.** Accepted. Deployed as Worker `mailpit-status-fallback` on routes `<host>/` and `<host>/index.html`. Deploy steps are in `runbook-setup.md` C6.

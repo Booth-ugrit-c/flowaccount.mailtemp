@@ -66,7 +66,7 @@ Create a **user API token**: My Profile → API Tokens → Create Token → Cust
 | Zone → Zone Settings: Edit | enable Email Routing, turn on subaddressing | Cloudflare API docs for `/email/routing` and `/email/routing/dns` ("Zone Settings Write") |
 | Zone → Email Routing Rules: Edit | `qa@` rule and catch-all | API docs for rules ("Email Routing Rules Write") |
 | Zone → DNS: Edit | tunnel CNAMEs | standard permission name; not exercised by token in this project |
-| Zone → Workers Routes: Edit | `status-worker` routes | standard permission name; not exercised by token in this project |
+| Zone → Workers Routes: Edit | `status-worker` routes | used in this project: the user token deployed the status Worker with both routes (`Deployed mailpit-status-fallback triggers`) |
 | Account → Workers Scripts: Edit | deploy Workers, set secrets | used by `wrangler deploy` in this project |
 | Account → Workers KV Storage: Edit | create the fallback KV namespace | used in this project |
 | Account → Cloudflare Tunnel: Edit | create and configure the tunnel | standard permission name |
@@ -149,9 +149,11 @@ docker compose logs cloudflared | grep -c 'Registered tunnel connection'    # 4
 ### C6. Status Worker (`status-worker/`)
 It shows a "service is down, mail is queued" page when the host or tunnel is down (ADR-016). Deploy it with routes **only** on `mailpit.<DOMAIN>/` and `mailpit.<DOMAIN>/index.html`. Do not add `/*`: page polling would then use up the Workers Free request quota.
 ```bash
-cd status-worker && npm ci && npx wrangler deploy     # routes come from status-worker/wrangler.toml; edit the host first
+cd status-worker && npx --yes wrangler@4 deploy     # routes come from status-worker/wrangler.toml; edit the host there first (no lockfile, so no npm ci)
 ```
-Verify: stop the tunnel (`docker compose stop cloudflared`) and open `https://mailpit.<DOMAIN>/`. The fallback page must show. Then start it again (`docker compose --profile tunnel up -d`); the page reloads into the app within about 15 s.
+Expected deploy output: `Deployed mailpit-status-fallback triggers` followed by your two routes.
+
+Verify: stop the tunnel (`docker compose stop cloudflared`) and open `https://mailpit.<DOMAIN>/`. The fallback page must show (`HTTP 503`, title `Mailpit - system is down`). Measured: with no connector, the origin answers `530`. `/api/status` returns the raw `530` by design. Then start it again (`docker compose --profile tunnel up -d`); the page reloads into the app within about 15 s.
 
 ## V. Verification checklist
 

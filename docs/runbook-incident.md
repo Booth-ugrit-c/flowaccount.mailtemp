@@ -12,11 +12,13 @@ Work symptom → check → fix. Run commands from the repo root on the host unle
 
 | Symptom | Meaning | Check | Fix |
 |---|---|---|---|
-| Red banner "Inbox service is down…" | the app runs, but Mailpit does not answer | `docker compose ps mailpit`; `docker compose logs mailpit --tail 50` | `docker compose up -d mailpit`. Data is on volume `mailpit-data`. Incoming mail waits in KV and replays. |
-| Yellow banner "New mail is delayed…" | the bridge is down; mail is queued in KV | `docker compose ps bridge`; `curl -s http://127.0.0.1:8080/healthz` | `docker compose up -d bridge`. Queued mail arrives within the next cron runs (15 per 5 min). |
-| Red banner "Lost connection… Retrying" | the browser cannot reach the app (tunnel or host) | section 2 | section 2 |
-| Cloudflare page "service is down, mail is queued" (status Worker) | the origin returned 502–504/520–530 or did not answer | section 2 | section 2 |
+| Red banner "Inbox service is down. Your mail is safe and will appear when it is back." | the app runs, but Mailpit does not answer | `docker compose ps mailpit`; `docker compose logs mailpit --tail 50` | `docker compose up -d mailpit`. Data is on volume `mailpit-data`. Incoming mail waits in KV and replays. |
+| Yellow banner "New mail is delayed. It is queued and will arrive when the service recovers." | the bridge is down; mail is queued in KV | `docker compose ps bridge`; `curl -s http://127.0.0.1:8080/healthz` | `docker compose up -d bridge`. Queued mail arrives within the next cron runs (15 per 5 min). |
+| Red banner "Lost connection to the mail service. Retrying…" | the browser cannot reach the app (tunnel or host) | section 2 | section 2 |
+| Status Worker page, title `Mailpit - system is down`, `HTTP 503` | the origin returned 502–504/520–530 or did not answer. Measured: with a tunnel that has no connector the origin answers `530` and `/` serves this page. Only `/` and `/index.html` get it. Other paths such as `/api/status` return the raw `530` by design; once the page is loaded the in-page banner covers them. | section 2 | section 2 |
 | Cloudflare error 1033 on `/admin/` | no tunnel connector (the status Worker does not cover `/admin`) | section 2 | section 2 |
+
+Detection latency (measured): the Mailpit and bridge banners appear about 7–9 s after the part goes down (5 s status cache + 5 s poll). The "Lost connection" banner appears about 1.3 s after the app becomes unreachable. Banners hide by themselves on recovery.
 
 ## 2. Site unreachable
 
@@ -26,6 +28,8 @@ Work symptom → check → fix. Run commands from the repo root on the host unle
 | App local | `curl -s http://127.0.0.1:8090/healthz` | `ok` |
 | Tunnel connected | `docker compose logs cloudflared --since 10m \| grep -E 'Registered tunnel connection\|ERR'` | 4 × `Registered tunnel connection … protocol=http2`, no recurring `ERR` |
 | Public | `curl -s --doh-url https://cloudflare-dns.com/dns-query https://mailpit.<DOMAIN>/healthz` | `ok` |
+| Status Worker | `curl -s -o /dev/null -w "%{http_code}
+" --doh-url https://cloudflare-dns.com/dns-query https://mailpit.<DOMAIN>/` | `200` when healthy (the app passes through). `503` with the fallback page means the origin is down (measured: origin `530` with no tunnel connector) |
 
 Fixes, in order:
 1. Docker not running: start Docker (Docker Desktop, or `sudo systemctl start docker`), then `docker compose --profile tunnel up -d`.
