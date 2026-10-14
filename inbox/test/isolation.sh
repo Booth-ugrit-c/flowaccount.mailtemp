@@ -12,6 +12,7 @@ HMAC_KEY=$(envv HMAC_KEY)
 INBOX_KEY=$(grep -m1 "^INBOX_KEY=" secrets/inbox.env | cut -d= -f2- | tr -d "[:cntrl:]")
 MP_USER=$(envv MAILPIT_UI_USER)
 MP_AUTH="$MP_USER:$(envv MAILPIT_UI_PASSWORD)"
+CI_AUTH="$(grep -m1 '^MAILPIT_CI_USER=' secrets/ci.env | cut -d= -f2- | tr -d '[:cntrl:]'):$(grep -m1 '^MAILPIT_CI_PASSWORD=' secrets/ci.env | cut -d= -f2- | tr -d '[:cntrl:]')"
 ROOT_AUTH="root:$(grep -m1 "^root:" secrets/ui_auth | cut -d: -f2- | tr -d "[:cntrl:]")"
 
 RUN=$(openssl rand -hex 4)
@@ -269,6 +270,8 @@ expect "existing username from the limited IP reports created:false" "$(jq -r .c
 expect "GET 127.0.0.1:8025/admin/ with no auth -> 401" "$(curl -s -o /dev/null -w '%{http_code}' "$MAILPIT/admin/")" 401
 expect "GET 127.0.0.1:8025/admin/ as root -> 200" "$(curl -s -o /dev/null -w '%{http_code}' -u "$ROOT_AUTH" "$MAILPIT/admin/")" 200
 expect "GET 127.0.0.1:8025/admin/ as $MP_USER -> 200" "$(curl -s -o /dev/null -w '%{http_code}' -u "$MP_AUTH" "$MAILPIT/admin/")" 200
+expect "GET /admin/api/v1/info as the ci user -> 200" "$(curl -s -o /dev/null -w '%{http_code}' -u "$CI_AUTH" "$MAILPIT/admin/api/v1/info")" 200
+expect "GET /admin/api/v1/info as ci with a wrong password -> 401" "$(curl -s -o /dev/null -w '%{http_code}' -u "${CI_AUTH%%:*}:wrong-password" "$MAILPIT/admin/api/v1/info")" 401
 code=$(curl -s -o /dev/null -w '%{http_code}' -u "$MP_AUTH" "$MAILPIT/api/v1/info")
 [ "$code" != "200" ] && pass "GET 127.0.0.1:8025/api/v1/info (old path) is not 200 (got $code)" || fail "old Mailpit API path" "got 200"
 

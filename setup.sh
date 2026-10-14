@@ -20,7 +20,9 @@ QA_USER=$(read_env MAILPIT_UI_USER)
 QA_PASSWORD=$(read_env MAILPIT_UI_PASSWORD)
 [ -n "$QA_USER" ] && [ -n "$QA_PASSWORD" ] || { echo "error: .env needs MAILPIT_UI_USER and MAILPIT_UI_PASSWORD" >&2; exit 1; }
 
+UI_AUTH_EXISTED=no
 if [ -f secrets/ui_auth ]; then
+  UI_AUTH_EXISTED=yes
   echo "keep    secrets/ui_auth (exists)"
 else
   umask 077
@@ -49,10 +51,41 @@ MAILPIT_UI_PASSWORD=%s
   created+=(secrets/janitor.env)
 fi
 
+CI_PASSWORD=
+CI_ADDED=no
+if grep -q '^ci:' secrets/ui_auth; then
+  echo "keep    ci user in secrets/ui_auth (exists)"
+else
+  umask 077
+  CI_PASSWORD=$(random_hex 12)
+  [ -n "$(tail -c1 secrets/ui_auth)" ] && echo >> secrets/ui_auth
+  printf 'ci:%s
+' "$CI_PASSWORD" >> secrets/ui_auth
+  CI_ADDED=yes
+  echo "added   ci user to secrets/ui_auth"
+fi
+
+if [ -f secrets/ci.env ]; then
+  echo "keep    secrets/ci.env (exists)"
+else
+  umask 077
+  CI_PASSWORD=${CI_PASSWORD:-$(sed -n 's/^ci://p' secrets/ui_auth | head -1 | tr -d '')}
+  printf 'MAILPIT_CI_USER=ci
+MAILPIT_CI_PASSWORD=%s
+' "$CI_PASSWORD" > secrets/ci.env
+  created+=(secrets/ci.env)
+fi
+
 for file in "${created[@]+"${created[@]}"}"; do echo "created $file"; done
 if [ "${GENERATED_ADMIN:-no}" = "yes" ]; then
   echo
   echo "Mailpit admin login (shown once): root / $ADMIN_PASSWORD"
   echo "Open http://127.0.0.1:8025/admin/ after 'docker compose up -d'."
+fi
+if [ "$CI_ADDED" = "yes" ]; then
+  echo
+  echo "CI mail credential (shown once): ci / $CI_PASSWORD"
+  echo "Upload secrets/ci.env values as the GitHub secrets MAILPIT_CI_USER and MAILPIT_CI_PASSWORD."
+  [ "$UI_AUTH_EXISTED" = "yes" ] && echo "Mailpit reads secrets/ui_auth only at start: run 'docker compose restart mailpit' to activate the ci user."
 fi
 echo "next: docker compose up -d"

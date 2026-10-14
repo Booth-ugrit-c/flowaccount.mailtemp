@@ -15,7 +15,7 @@ Receives real internet mail for a domain and gives every visitor a private inbox
 
 ```bash
 git clone <this repo> && cd <repo>
-bash setup.sh                 # creates .env and secrets/ once; never overwrites existing files
+bash setup.sh                 # creates .env and secrets/ once; never overwrites existing files (it only appends the `ci` user to `secrets/ui_auth` when missing)
 docker compose up -d          # mailpit, bridge, inbox
 ```
 
@@ -44,7 +44,8 @@ docker compose --profile tunnel up -d
 | File | Content |
 |---|---|
 | `.env` | `HMAC_KEY` (shared with the Worker), `MAILPIT_UI_USER`/`MAILPIT_UI_PASSWORD` (the `qa` account used by tools), `TUNNEL_TOKEN` |
-| `secrets/ui_auth` | Mailpit basic-auth users: `qa` for the apps, `root` for people |
+| `secrets/ui_auth` | Mailpit basic-auth users: `qa` for the apps, `root` for people, `ci` for the CI live check |
+| `secrets/ci.env` | `MAILPIT_CI_USER` and `MAILPIT_CI_PASSWORD`: upload these as GitHub repository secrets (see CI access below); nothing on the host reads this file |
 | `secrets/inbox.env` | `INBOX_KEY` (signs the session cookie) and the `qa` credentials; only the inbox container reads it |
 
 Mailpit options used: `MP_MAX_MESSAGE_SIZE=30` (MB), `MP_MAX_MESSAGES=0` (no count cap; the default would keep only 500), `MP_DATABASE=/data/mailpit.db`, `MP_UI_AUTH_FILE=/run/secrets/ui_auth`, `MP_WEBROOT=admin`. There is no age expiry: the `janitor` service frees space by quota.
@@ -73,6 +74,12 @@ If the PC, the tunnel or the app is down, the browser cannot load the page at al
 - Deploy with `cd status-worker && npx wrangler deploy` using your own Cloudflare account. The repo never deploys it.
 - Tests (no dependencies): `node --test "status-worker/test/*.test.js"`; CI runs them in the `build` job.
 - Outage test for the banners: `bash inbox/test/outage.sh` stops and starts services of an isolated compose project (`outagecheck`, ports 38025/38080/38090); it never touches the running stack.
+
+## CI access to the mail API
+
+E2E tests address `qa+<test-id>@<domain>`, which the public inbox cannot read (reserved names), so CI reads captured mail through the Mailpit API at `/admin/api/v1` with its own user `ci`. `setup.sh` adds the `ci:<random>` line to `secrets/ui_auth` and writes `secrets/ci.env`; Mailpit reads the auth file only at start, so run `docker compose restart mailpit` once after the line is added to an existing host.
+
+Upload the two values from `secrets/ci.env` as the repository secrets `MAILPIT_CI_USER` and `MAILPIT_CI_PASSWORD`. The `live-smoke` workflow (manual or on push to `main`) then runs `e2e-helper/live-smoke.spec.ts` against the public API: the API answers, the captured `t03a` message and its attachment metadata (no download), and a wrong password is rejected. It is **not** a required check (it needs the host to be up) and skips with a notice when the secrets are missing. Local run: `cd e2e-helper && set -a && . ../secrets/ci.env && set +a && MAILPIT_URL=https://<host>/admin MAILPIT_USER=$MAILPIT_CI_USER MAILPIT_PASSWORD=$MAILPIT_CI_PASSWORD npx playwright test --config playwright.live.config.ts`. Mailpit has no per-user permissions, so `ci` can do everything `root` can; the spec only reads.
 
 ## Mail quota (janitor)
 

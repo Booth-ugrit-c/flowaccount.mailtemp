@@ -1,0 +1,48 @@
+name: live-smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-smoke:
+    name: live-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HAVE_SECRETS: ${{ secrets.MAILPIT_CI_USER != '' && secrets.MAILPIT_CI_PASSWORD != '' }}
+      MAILPIT_URL: https://mailpit.booth.pp.ua/admin
+      MAILPIT_USER: ${{ secrets.MAILPIT_CI_USER }}
+      MAILPIT_PASSWORD: ${{ secrets.MAILPIT_CI_PASSWORD }}
+    steps:
+      - name: Skip without the CI mail credential
+        if: env.HAVE_SECRETS != 'true'
+        run: echo "::notice title=live-smoke skipped::Repository secrets MAILPIT_CI_USER and MAILPIT_CI_PASSWORD are not set, so the live mail check did not run."
+
+      - uses: actions/checkout@v4
+        if: env.HAVE_SECRETS == 'true'
+
+      - uses: actions/setup-node@v4
+        if: env.HAVE_SECRETS == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e-helper/package-lock.json
+
+      - name: Install test dependencies
+        if: env.HAVE_SECRETS == 'true'
+        working-directory: e2e-helper
+        run: npm ci
+
+      - name: Live smoke against the public Mailpit API
+        if: env.HAVE_SECRETS == 'true'
+        working-directory: e2e-helper
+        run: npx playwright test --config playwright.live.config.ts
