@@ -9,6 +9,7 @@ Version `1.0.0`. Release notes: [CHANGELOG.md](CHANGELOG.md).
 | `worker/` | Cloudflare Email Worker that signs and forwards each mail to the bridge |
 | `bridge/` | Node 22 service: verifies the signature, relays the mail to Mailpit over SMTP |
 | `inbox/` | Node 22 web app: create-or-open an address, switch addresses, read mail |
+| `cloud/` | Cloudflare-only version: one Worker with D1 and static assets, no machine to run (see "Cloud version") |
 | `e2e-helper/` | Playwright helper for reading captured mail in tests |
 | `status-worker/` | Optional Cloudflare Worker that shows a "system is down" page when the origin is unreachable (not deployed by the repo) |
 | `tools/` | Local test scripts and the live Cloudflare scripts (`tools/live/`) |
@@ -51,6 +52,14 @@ docker compose --profile tunnel up -d
 | `secrets/inbox.env` | `INBOX_KEY` (signs the session cookie) and the `qa` credentials; only the inbox container reads it |
 
 Mailpit options used: `MP_MAX_MESSAGE_SIZE=30` (MB), `MP_MAX_MESSAGES=0` (no count cap; the default would keep only 500), `MP_DATABASE=/data/mailpit.db`, `MP_UI_AUTH_FILE=/run/secrets/ui_auth`, `MP_WEBROOT=admin`. There is no age expiry: the `janitor` service frees space by quota.
+
+## Cloud version (`cloud/`)
+
+One Worker (`mailtemp-cloud`) serves the inbox UI and API from Workers Static Assets and keeps mail in D1: an index row, one row per recipient, and the raw message as base64 text chunks of 1,440,000 bytes (a D1 row holds at most 2,000,000). Mail reaches it through an RPC method, never a public route: `env.CLOUD.ingest(raw, { from, to })` on a Service Binding. The message view is parsed in the browser from `/api/messages/:id/raw` with a vendored copy of postal-mime (`cloud/public/vendor/postal-mime.js`, MIT-0, version 4.0.7, bundled from the npm package).
+
+- Free-tier shape: the UI polls every 30 s and only while the tab is visible, because every API call counts against the 100,000 requests per day; static files are free. A cron (every 10 min) deletes the oldest whole messages when stored bytes pass `STORED_BYTES_CAP` (400 MB, below the 500 MB D1 limit) and removes chunks left by a failed ingest.
+- Deploy (own account): `cd cloud && npm ci`, create the database with `npx wrangler d1 create mailtemp-cloud` and put its id in `wrangler.toml`, then `npx wrangler d1 migrations apply DB --remote`, `npx wrangler secret put SESSION_KEY`, `npx wrangler deploy`, and add the Custom Domain for the host.
+- Tests: `node --test "cloud/test/*.test.mjs"` (unit, runs on a SQLite stand-in for D1) and `node cloud/test/integration.mjs` (starts `wrangler dev --local` with a probe Worker that calls `ingest`; CI runs both). Against a deployed copy, set `PROBE_URL`, `PROBE_TOKEN` and `PUBLIC_URL` and run the same script: the probe Worker (`cloud/test/probe/`) is deployed only for that check and deleted afterwards.
 
 ## Service status and outage alerts
 
