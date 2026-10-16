@@ -5,13 +5,14 @@ export const MAX_ACCOUNTS = 10;
 const SESSION_SECONDS = 365 * 86400;
 const LEGACY_RE = /^(.+)\.(\d+)\.([0-9a-f]{64})$/;
 const SESSION_RE = /^([A-Za-z0-9_-]+)\.(\d+)\.([0-9a-f]{64})$/;
-const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,29}$/;
+const USERNAME_RE = /^([a-z0-9][a-z0-9._-]{2,29})(?:\+[a-z0-9._-]{1,30})?$/;
 const RESERVED = new Set(["root", "admin", "postmaster", "abuse", "hostmaster", "webmaster", "noreply", "no-reply", "security", "support", "mailer-daemon"]);
-const cookieValue = (header, name) => new RegExp(`(?:^|;\s*)${name}=([^;]*)`).exec(header ?? "")?.[1] ?? "";
+const cookieValue = (header, name) => new RegExp(`(?:^|;\\s*)${name}=([^;]*)`).exec(header ?? "")?.[1] ?? "";
 
 export const usernameError = (name) => {
-  if (!USERNAME_RE.test(name)) return "username must be 3-30 chars: a-z 0-9 . _ -";
-  return name.startsWith("qa") || name.startsWith("h13") || RESERVED.has(name) ? "username not available" : null;
+  const base = USERNAME_RE.exec(name)?.[1];
+  if (!base) return "username must be 3-30 chars: a-z 0-9 . _ - (optionally +tag, 1-30 chars)";
+  return base.startsWith("qa") || base.startsWith("h13") || RESERVED.has(base) ? "username not available" : null;
 };
 
 export function limiter(max, windowMs) {

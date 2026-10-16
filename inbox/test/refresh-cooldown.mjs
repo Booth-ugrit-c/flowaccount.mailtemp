@@ -14,6 +14,7 @@ let listRequests = 0;
 page.on("request", (req) => { if (new URL(req.url()).pathname === "/api/messages") listRequests += 1; });
 
 await page.goto(base);
+await page.click("#sideList [data-act=add]");
 await page.fill("#user", username);
 await page.click("#go");
 await page.waitForSelector("#refreshBtn");

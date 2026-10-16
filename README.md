@@ -58,7 +58,7 @@ The page tells the user when something is down. No notifications are sent; the a
 
 `GET /api/status` (no login, always HTTP 200) returns `{"mailpit":"ok|down","bridge":"ok|down","checkedAt":"<ISO time>"}`. Mailpit is checked through its API at `MAILPIT_URL`, the bridge at `BRIDGE_HEALTH_URL` (default `http://bridge:8080/healthz`). Each check has a 1 s timeout and the result is cached for 5 s. The response carries no internal detail.
 
-The page polls it every 5 s (the same timer as the mail list), on the entry card and in the inbox, and shows a banner that disappears when the service recovers:
+The page polls it every 5 s (the same timer as the mail list), on a first visit and in the inbox, and shows a banner that disappears when the service recovers:
 
 | Condition | Banner |
 |---|---|
@@ -118,11 +118,12 @@ The quota counts message bytes, not the SQLite file: SQLite keeps its file size 
 ## Tests
 
 - `bash janitor/test/janitor.sh` checks the quota janitor in an isolated compose project.
+- `node --test "inbox/test/*.test.mjs"` runs the name, ownership and cookie unit tests (no stack needed).
 - `bash inbox/test/isolation.sh` runs against the running stack (needs `curl`, `jq`, `openssl`, and Node with Playwright from `e2e-helper/node_modules` for the browser checks).
 - `bash tools/l-bridge.sh` and `bash tools/l-worker.sh` are local bridge/Worker checks. They delete all Mailpit mail, so run them only on a disposable stack.
 - Run the Worker locally with Node >= 22: `cd worker && npm install && npx wrangler dev --local --test-scheduled`, with `HMAC_KEY` in `worker/.dev.vars`.
 
 ## Notes
 
-- Anyone who types a username sees that inbox (Mailinator style). Reserved names (`qa*`, `h13*`, `root`, `admin`, ...) cannot be opened, so those mails are visible only in `/admin/`.
+- Anyone who types a username sees that inbox (Mailinator style). `name+tag` is its own inbox (for example `test+1`) and `name` also shows every `name+tag` mail. Reserved names (`qa*`, `h13*`, `root`, `admin`, ...) cannot be opened, so those mails are visible only in `/admin/`.
 - `/admin/` is protected by basic auth only; choose a strong `ADMIN_PASSWORD`.

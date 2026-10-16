@@ -5,7 +5,16 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Added
+- `name+tag` addresses are real inboxes. `test+1` shows only mail to `test+1` and `test+1+...`; `test` still shows every `test+...` mail. `base` follows the existing name rule, `tag` is 1-30 chars `a-z 0-9 . _ -`, one `+` per name, reserved names are checked on `base`.
+- The inbox page opens first on every visit. With no address a dim overlay spotlights "Add address"; the button opens a centred modal (focus trap, Enter submits, Esc and backdrop close it only when an address exists).
+- Inbox unit tests (`inbox/test/names.test.mjs`) run in CI.
 - Down alert: the capture Worker's 5-minute cron probes `/api/status` and posts to a Discord webhook (`ALERT_WEBHOOK_URL` secret): DOWN after 2 consecutive failed probes, a reminder at most every 2 hours, and RECOVERED with the downtime and the KV-buffered mail count. State lives in a new `MONITOR_STATE` KV namespace. See the README section "Down alert".
+
+### Changed
+- The separate entry page is gone; adding an address happens in the modal.
+
+### Fixed
+- The session cookie was ignored when the browser sent it after another cookie (`a=1; inboxes=...`) because of a mis-escaped regex.
 
 ## [1.0.0] - 2026-10-14
 

@@ -111,7 +111,7 @@ expect "existing username reports created:false" "$(jq -r .created "$TMP/out.jso
 expect "second visit gets its own session cookie" "$(has_cookie alice-again)" yes
 expect "open a second new username -> 200" "$(open_inbox "$B")" 200
 
-for name in qa qa1 h13x root admin postmaster ab "Bad Name" "$A+tag" "$A@booth.pp.ua"; do
+for name in qa qa1 h13x root admin postmaster ab "Bad Name" "$A@booth.pp.ua" qa+1 qa1+x h13x+1 root+1 "$A+" "+tag" "$A+a+b" "$A++b" "$A+Bad Tag" "$A+$(printf 'x%.0s' $(seq 1 31))"; do
   expect "open '$name' -> 400" "$(open_inbox "$name" bad)" 400
 done
 expect "reserved name sets no cookie" "$(has_cookie bad)" no
@@ -186,6 +186,76 @@ expect "raw source has no Bcc header for alice" "$(grep -ci '^Bcc:' "$TMP/out.js
 call "$A" "/api/messages/$BCC_ID/headers" > /dev/null
 expect "headers do not expose bob's address to alice" "$(grep -c "$B@" "$TMP/out.json")" 0
 expect "headers have no Bcc entry for alice" "$(jq 'keys | map(ascii_downcase) | index("bcc")' "$TMP/out.json")" null
+
+P=plus-$RUN
+S_PB="isolation-$RUN plus-base"; S_P1="isolation-$RUN plus-one"; S_P2="isolation-$RUN plus-two"; S_P10="isolation-$RUN plus-ten"; S_P1X="isolation-$RUN plus-one-sub"; S_P12="isolation-$RUN plus-one-and-two"
+expect "open a base name -> 200" "$(open_inbox "$P")" 200
+for tag in 1 2 10; do
+  expect "open $P+$tag -> 200" "$(open_inbox "$P+$tag")" 200
+  expect "$P+$tag is a new account" "$(jq -r .created "$TMP/out.json")" true
+done
+expect "opening a +tag name sets a session cookie" "$(has_cookie "$P+1")" yes
+expect "me returns the +tag username as active" "$(call "$P+1" /api/me > /dev/null; jq -r .active "$TMP/out.json")" "$P+1"
+expect "me returns the +tag address" "$(jq -r .address "$TMP/out.json")" "$P+1@$DOMAIN"
+expect "a +tag name opened again reports created:false" "$(open_inbox "$P+1" again-plus > /dev/null; jq -r .created "$TMP/out.json")" false
+
+inject "$P@$DOMAIN" "$P@$DOMAIN" "$S_PB"
+inject "$P+1@$DOMAIN" "$P+1@$DOMAIN" "$S_P1"
+inject "$P+2@$DOMAIN" "$P+2@$DOMAIN" "$S_P2"
+inject "$P+10@$DOMAIN" "$P+10@$DOMAIN" "$S_P10"
+inject "$P+1+x@$DOMAIN" "$P+1+x@$DOMAIN" "$S_P1X"
+inject "$P+1@$DOMAIN, $P+2@$DOMAIN" "$P+1@$DOMAIN,$P+2@$DOMAIN" "$S_P12"
+visible "$P+1" "$S_P1" "mail to name+1@ is visible to name+1"
+visible "$P+1" "$S_P1X" "mail to name+1+x@ is visible to name+1"
+visible "$P+1" "$S_P12" "mail to name+1@ and name+2@ is visible to name+1"
+invisible "$P+1" "$S_PB" "mail to name@ is invisible to name+1"
+invisible "$P+1" "$S_P2" "mail to name+2@ is invisible to name+1"
+invisible "$P+1" "$S_P10" "mail to name+10@ is invisible to name+1"
+visible "$P+2" "$S_P2" "mail to name+2@ is visible to name+2"
+visible "$P+2" "$S_P12" "mail to name+1@ and name+2@ is visible to name+2"
+invisible "$P+2" "$S_P1" "mail to name+1@ is invisible to name+2"
+invisible "$P+2" "$S_P1X" "mail to name+1+x@ is invisible to name+2"
+invisible "$P+2" "$S_P10" "mail to name+10@ is invisible to name+2"
+visible "$P+10" "$S_P10" "mail to name+10@ is visible to name+10"
+invisible "$P+10" "$S_P1" "mail to name+1@ is invisible to name+10"
+invisible "$P+10" "$S_P1X" "mail to name+1+x@ is invisible to name+10"
+invisible "$P+10" "$S_P12" "mail to name+1@ and name+2@ is invisible to name+10"
+for subj in "$S_PB" "$S_P1" "$S_P2" "$S_P10" "$S_P1X" "$S_P12"; do
+  visible "$P" "$subj" "the base name sees ${subj#isolation-$RUN }"
+done
+
+P1_ID=$(subject_id "$P+1" "$S_P1")
+P2_ID=$(subject_id "$P+2" "$S_P2")
+PB_ID=$(subject_id "$P" "$S_PB")
+expect "name+1 reads its own message -> 200" "$(call "$P+1" "/api/messages/$P1_ID")" 200
+expect "the base name reads a +tag message -> 200" "$(call "$P" "/api/messages/$P1_ID")" 200
+expect_one_of "name+1 on name+2's message -> 403 or 404" "$(call "$P+1" "/api/messages/$P2_ID")" "403 404"
+expect_one_of "name+1 on the base name's message -> 403 or 404" "$(call "$P+1" "/api/messages/$PB_ID")" "403 404"
+expect_one_of "name+1 raw source of name+2's message -> 403 or 404" "$(call "$P+1" "/api/messages/$P2_ID/raw")" "403 404"
+expect_one_of "name+1 delete of name+2's message -> 403 or 404" "$(call "$P+1" "/api/messages/$P2_ID" DELETE)" "403 404"
+expect "name+2's message survives name+1's delete attempt" "$(subject_count "$P+2" "$S_P2")" 1
+
+PLUS_COOKIE=$(cookie_of "$P+1")
+expect "+tag session cookie value is URL-safe (no +, %, space)" "$(printf '%s' "$PLUS_COOKIE" | grep -cE '^[A-Za-z0-9_-]+\.[0-9]+\.[0-9a-f]{64}$')" 1
+expect "cookie payload carries the +tag name" "$(node -e 'console.log(JSON.parse(Buffer.from(process.argv[1].split(".")[0], "base64url").toString()).active)' "$PLUS_COOKIE" | tr -d '[:cntrl:]')" "$P+1"
+expect "+tag cookie sent as the only cookie -> 200" "$(status_with_cookie "inboxes=$PLUS_COOKIE" /api/me)" 200
+expect "+tag cookie sent after another cookie -> 200" "$(status_with_cookie "theme=dark; inboxes=$PLUS_COOKIE" /api/me)" 200
+expect "+tag cookie keeps name+1 active" "$(curl -s -H "Cookie: theme=dark; inboxes=$PLUS_COOKIE" "$INBOX/api/me" | jq -r .active)" "$P+1"
+PLUS_TAMPERED="${PLUS_COOKIE%?}$([ "${PLUS_COOKIE: -1}" = "0" ] && echo 1 || echo 0)"
+expect "tampered +tag cookie -> 401" "$(status_with_cookie "inboxes=$PLUS_TAMPERED")" 401
+expect "name+1 signature under name+2's payload -> 401" "$(status_with_cookie "inboxes=$(cookie_of "$P+2" | cut -d. -f1).${PLUS_COOKIE#*.}")" 401
+
+PM=plusmulti-$RUN
+expect "open the base name into a fresh browser -> 200" "$(open_inbox "$P" "$PM")" 200
+expect "open name+1 into the same browser -> 200" "$(open_inbox "$P+1" "$PM")" 200
+call "$PM" /api/me > /dev/null
+expect "me lists the base and the +tag name with the +tag active" "$(jq -c '[.accounts, .active]' "$TMP/out.json")" "[[\"$P\",\"$P+1\"],\"$P+1\"]"
+expect "active name+1 does not see name+2's mail" "$(subject_count "$PM" "$S_P2")" 0
+expect "switch to the base name -> 200" "$(post /api/switch "{\"username\":\"$P\"}" "$PM")" 200
+expect "after the switch the base name sees name+2's mail" "$(subject_count "$PM" "$S_P2")" 1
+expect "switch to name+2 that is not in the cookie -> 403" "$(post /api/switch "{\"username\":\"$P+2\"}" "$PM")" 403
+expect "forget name+1 -> 200" "$(post /api/forget "{\"username\":\"$P+1\"}" "$PM")" 200
+expect "switching to the forgotten name+1 -> 403" "$(post /api/switch "{\"username\":\"$P+1\"}" "$PM")" 403
 
 OTHER="other-$RUN"
 open_inbox "$OTHER" > /dev/null
@@ -287,6 +357,11 @@ FAILS=$((FAILS + $(grep -c '^FAIL' "$TMP/accounts.txt")))
 BROWSER_RANDOM=$(grep '^INFO  random-name ' "$TMP/accounts.txt" | cut -d' ' -f4 | tr -d '[:cntrl:]')
 RANDOM_NAMES="$RANDOM_NAMES $BROWSER_RANDOM"
 [ "$ACCOUNTS_RC" = "0" ] || { fail "browser account checks" "script exited $ACCOUNTS_RC"; head -c 600 "$TMP/accounts.txt"; }
+timeout 120 node inbox/test/modal.mjs "$P" "$P+1" "$S_PB" "$S_P1" "$S_P2" > "$TMP/modal.txt" 2>&1
+MODAL_RC=$?
+grep '^PASS\|^FAIL' "$TMP/modal.txt" | sed 's/^\(PASS\|FAIL\)  /\1  modal: /'
+FAILS=$((FAILS + $(grep -c '^FAIL' "$TMP/modal.txt")))
+[ "$MODAL_RC" = "0" ] || { fail "modal and spotlight checks" "script exited $MODAL_RC"; head -c 600 "$TMP/modal.txt"; }
 expect "no Thai text in the served UI files" "$(LC_ALL=C.UTF-8 grep -rlIP '[\x{0E00}-\x{0E7F}]' inbox/src | wc -l | tr -d ' ')" 0
 expect "GET /api/status without a cookie -> 200" "$(curl -s -o "$TMP/status.json" -w '%{http_code}' "$INBOX/api/status")" 200
 expect "status reports mailpit and bridge ok" "$(jq -c '[.mailpit, .bridge]' "$TMP/status.json")" '["ok","ok"]'
