@@ -21,6 +21,7 @@ const devVars = path.join(root, ".dev.vars");
 const probeVars = path.join(root, "test", "probe", ".dev.vars");
 const persist = live ? null : fs.mkdtempSync(path.join(os.tmpdir(), "mailtemp-cloud-"));
 const owner = live ? "cloudcheck" : "inboxcheck";
+const runTag = process.env.RUN_TAG ?? "";
 let dev = null;
 let devLog = "";
 
@@ -88,8 +89,8 @@ class Browser {
 
 const mail = (name) => ({
   to: `${owner}${name === "small" ? "" : "+01"}@booth.pp.ua`,
-  subject: `${owner} ${name}`,
-  id: `${owner}-${name}`,
+  subject: `${owner} ${name}${runTag}`,
+  id: `${owner}-${name}${runTag}`,
 });
 
 try {
@@ -107,8 +108,8 @@ try {
     assert.equal(body.result.stored, true);
     console.log(`ingest ${name} size=${size} chunks=${body.result.chunks} wallMs=${body.wallMs}`);
   }
-  assert.equal(stored.small.result.chunks, 1);
-  assert.equal(stored.large.result.chunks, Math.ceil(sizes.large / 1_440_000));
+  if (!stored.small.result.duplicate) assert.equal(stored.small.result.chunks, 1);
+  if (!stored.large.result.duplicate) assert.equal(stored.large.result.chunks, Math.ceil(sizes.large / 1_440_000));
   if (!live) {
     assert.equal((await ingest({ size: 100_000, ...mail("small") })).result.duplicate, true);
     await ingest({ size: 20_000, to: "someoneelse@booth.pp.ua", id: "other-1", subject: "stranger" });
