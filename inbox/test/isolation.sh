@@ -417,6 +417,13 @@ grep '^PASS\|^FAIL' "$TMP/many.txt" | sed 's/^\(PASS\|FAIL\)  /\1  many addresse
 grep '^INFO' "$TMP/many.txt"
 FAILS=$((FAILS + $(grep -c '^FAIL' "$TMP/many.txt")))
 [ "$MANY_RC" = "0" ] || { fail "many-address browser checks" "script exited $MANY_RC"; head -c 600 "$TMP/many.txt"; }
+FN="filters-$RUN"
+for name in "$FN" "$FN+10" "${FN}2+01" "${FN}2" "$FN+2" "$FN+01"; do open_inbox "$name" filters-open "$(rand_ip)" > /dev/null; done
+timeout 240 node inbox/test/filters.mjs "filters-$RUN" ${SHOT_DIR:-} > "$TMP/filters.txt" 2>&1
+FILTERS_RC=$?
+grep '^PASS\|^FAIL' "$TMP/filters.txt" | sed 's/^\(PASS\|FAIL\)  /\1  list sort and filter: /'
+FAILS=$((FAILS + $(grep -c '^FAIL' "$TMP/filters.txt")))
+[ "$FILTERS_RC" = "0" ] || { fail "list sort and filter checks" "script exited $FILTERS_RC"; head -c 600 "$TMP/filters.txt"; }
 expect "no Thai text in the served UI files" "$(LC_ALL=C.UTF-8 grep -rlIP '[\x{0E00}-\x{0E7F}]' inbox/src | wc -l | tr -d ' ')" 0
 expect "GET /api/status without a cookie -> 200" "$(curl -s -o "$TMP/status.json" -w '%{http_code}' "$INBOX/api/status")" 200
 expect "status reports mailpit and bridge ok" "$(jq -c '[.mailpit, .bridge]' "$TMP/status.json")" '["ok","ok"]'
@@ -424,5 +431,7 @@ expect "status carries a checkedAt timestamp" "$(jq -r '.checkedAt | test("^[0-9
 expect "status exposes nothing but mailpit, bridge and checkedAt" "$(jq -c 'keys' "$TMP/status.json")" '["bridge","checkedAt","mailpit"]'
 expect "/index.html serves the page like / (the edge worker routes both)" "$(curl -s -o /dev/null -w '%{http_code}' "$INBOX/index.html")" 200
 expect "vendored stylesheet is served without auth" "$(curl -s -o /dev/null -w '%{http_code}' "$INBOX/vendor/app.css")" 200
+expect "/listview.js is served without auth as JavaScript" "$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$INBOX/listview.js" | tr -d '\r')" "200 text/javascript; charset=utf-8"
+expect "the message list reports truncated:false for a small inbox" "$(call "$A" /api/messages > /dev/null; jq -r .truncated "$TMP/out.json")" false
 expect "unknown vendor path -> 404" "$(curl -s -o /dev/null -w '%{http_code}' "$INBOX/vendor/nope.js")" 404
 expect "docker compose port inbox 8090" "$($COMPOSE port inbox 8090 | tr -d '\r')" "127.0.0.1:${INBOX_HOST_PORT:-8090}"

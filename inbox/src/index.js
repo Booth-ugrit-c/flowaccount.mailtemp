@@ -13,6 +13,7 @@ const creations = limiter(30, 3600_000);
 const randomRequests = limiter(30, 60_000);
 const sessionStarts = limiter(300, 3600_000);
 const page = fs.readFileSync(new URL("./public/index.html", import.meta.url));
+const listview = fs.readFileSync(new URL("./public/listview.js", import.meta.url));
 const VENDOR = {
   "app.css": "text/css; charset=utf-8",
   "bootstrap-icons-CVBWLLHT.woff2": "font/woff2",
@@ -126,7 +127,7 @@ async function scrubbed(res, path, kind, transform) {
 async function messageRoute(req, res, username, segments) {
   if (segments.length === 2) {
     if (req.method !== "GET") return fail(res, 404, "not found");
-    return send(res, 200, { messages: await listFor(username, accounts.hiddenIds(username)) });
+    return send(res, 200, await listFor(username, accounts.hiddenIds(username)));
   }
   const id = segments[2];
   const message = await ownMessage(username, id, accounts.hiddenIds(username));
@@ -160,6 +161,7 @@ async function route(req, res) {
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
     return send(res, 200, page, "text/html; charset=utf-8", { "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "no-referrer" });
   }
+  if (req.method === "GET" && pathname === "/listview.js") return send(res, 200, listview, "text/javascript; charset=utf-8");
   if (req.method === "GET" && pathname.startsWith("/vendor/")) {
     const file = vendorFiles.get(pathname.slice("/vendor/".length));
     return file ? send(res, 200, file.body, file.type, { "Cache-Control": "public, max-age=86400" }) : fail(res, 404, "not found");

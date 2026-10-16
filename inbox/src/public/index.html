@@ -40,6 +40,11 @@
 @keyframes spotPulse{50%{box-shadow:0 0 0 3px #fff,0 0 26px 8px rgba(255,255,255,.3)}}
 @media (prefers-reduced-motion:reduce){#spotRing{animation:none}}
 #addModal .modal-dialog{max-width:440px}
+.list-head{position:sticky;top:0;z-index:2}
+.sort-btn{color:inherit;text-decoration:none;font-weight:600}
+.sort-btn:hover{text-decoration:underline}
+#chips .btn.active{--bs-btn-active-color:var(--bs-body-bg);--bs-btn-active-bg:var(--bs-body-color);--bs-btn-active-border-color:var(--bs-body-color)}
+[data-bs-theme=dark] #chips .btn-outline-secondary.active,[data-bs-theme=dark] #chips .btn-outline-secondary.active:hover{color:var(--bs-btn-active-color)}
 </style>
 </head>
 <body class="h-100">
@@ -68,7 +73,7 @@
     <div id="navView" class="navbar navbar-expand-lg row flex-shrink-0 bg-primary text-white d-print-none d-none" data-bs-theme="dark">
       <div class="d-none d-xl-block col-xl-3 col-auto pe-0"><a href="#/" class="navbar-brand text-white me-0"><img src="/vendor/mailpit.svg" alt="Mailpit"><span class="ms-2 d-none d-sm-inline">Mailpit</span></a></div>
       <div class="col col-xl-5">
-        <a href="#/" class="btn btn-outline-light me-3 d-xl-none" title="Return to messages"><i class="bi bi-arrow-return-left"></i><span class="ms-2 d-none d-lg-inline">Back</span></a>
+        <a id="backLink" href="#/" class="btn btn-outline-light me-3 d-xl-none" title="Return to messages"><i class="bi bi-arrow-return-left"></i><span class="ms-2 d-none d-lg-inline">Back</span></a>
         <button class="btn btn-outline-light me-1 me-sm-2" type="button" data-act="delete" title="Delete message"><i class="bi bi-trash-fill me-md-2"></i><span class="d-none d-md-inline">Delete</span></button>
       </div>
       <div class="col-auto col-lg-4 col-xl-4 text-end">
@@ -90,13 +95,17 @@
     <div class="row flex-fill" style="min-height:0">
       <div id="sideList" class="d-none d-md-flex h-100 col-xl-2 col-md-3 flex-column"></div>
       <div id="sideView" class="d-none h-100 flex-column">
-        <div class="list-group my-2"><a href="#/" class="list-group-item list-group-item-action"><i class="bi bi-arrow-return-left me-1"></i><span class="ms-1">Return to inbox</span></a></div>
+        <div class="list-group my-2"><a id="returnLink" href="#/" class="list-group-item list-group-item-action"><i class="bi bi-arrow-return-left me-1"></i><span class="ms-1">Return to inbox</span></a></div>
         <div id="MessageList" class="flex-grow-1 overflow-y-auto px-1 me-n1"><div id="compactList" class="list-group"></div></div>
         <div id="viewFooter"></div>
       </div>
       <div id="main" class="d-flex flex-column col-xl-10 col-md-9 mh-100 ps-0 ps-md-2 pe-0">
-        <div id="listBar" class="d-flex align-items-center flex-shrink-0 pt-2 pb-1 px-2 px-md-0">
-          <button id="refreshBtn" type="button" class="btn btn-sm btn-outline-secondary" data-act="refresh" title="Fetch new mail (available again after 5 seconds)"><i class="bi bi-arrow-clockwise me-1"></i><span id="refreshLabel">Refresh</span></button>
+        <div id="listBar" class="flex-shrink-0 pt-2 pb-1 px-2 px-md-0">
+          <div class="d-flex align-items-center flex-wrap gap-2">
+            <button id="refreshBtn" type="button" class="btn btn-sm btn-outline-secondary" data-act="refresh" title="Fetch new mail (available again after 5 seconds)"><i class="bi bi-arrow-clockwise me-1"></i><span id="refreshLabel">Refresh</span></button>
+            <div id="chips" class="d-flex align-items-center flex-wrap gap-2" role="group" aria-label="Sort and filter"></div>
+          </div>
+          <div id="listNote" class="small text-muted mt-1 d-none" role="status"></div>
         </div>
         <div id="message-page" class="flex-fill mh-100" style="overflow-y:auto;min-height:0"></div>
       </div>
@@ -158,7 +167,8 @@
   </div>
 </template>
 
-<script>
+<script type="module">
+import { DEFAULT_SORT, clearFilters, filterMessages, formatHash, formatSort, hasFilters, nextSort, orderAccounts, parseHash, parseSort, people, person, senderOptions, sortMessages } from "/listview.js";
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const h = (tag, attrs = {}, ...kids) => {
@@ -177,6 +187,9 @@ const NEXT_THEME = { auto: "light", light: "dark", dark: "auto" };
 
 let me = null;
 let messages = [];
+let truncated = false;
+let view = parseHash("");
+let chipKey = "";
 let current = null;
 let tab = "text";
 let timer = null;
@@ -188,9 +201,6 @@ const BANNERS = {
   mailpit: ["danger", "Inbox service is down. Your mail is safe and will appear when it is back."],
   bridge: ["warning", "New mail is delayed. It is queued and will arrive when the service recovers."],
 };
-
-const person = (p) => (p && p.Name ? p.Name : p?.Address ?? "");
-const people = (list) => (list ?? []).map((p) => (p.Name ? `${p.Name} <${p.Address}>` : p.Address)).join(", ");
 
 function ago(iso) {
   const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -245,7 +255,7 @@ function fillSidebar(root) {
   $("[data-user]", root).textContent = me?.active ?? "No address";
   $("[data-theme-icon]", root).className = `bi ${THEME_ICONS[window.themePref()]}`;
   const list = $("[data-accounts]", root);
-  list.replaceChildren(...(me?.accounts ?? []).map(accountRow));
+  list.replaceChildren(...orderAccounts(me?.accounts ?? []).map(accountRow));
   const selected = $(".list-group-item-primary", list);
   if (previous && previous.active === (me?.active ?? "")) list.scrollTop = previous.top;
   else if (selected) list.scrollTop = Math.max(0, selected.offsetTop - (list.clientHeight - selected.offsetHeight) / 2);
@@ -268,9 +278,71 @@ function refreshSidebars() {
   $("[data-theme-icon]", footer).className = `bi ${THEME_ICONS[window.themePref()]}`;
 }
 
-function filtered() {
-  const q = $("#search").value.trim().toLowerCase();
-  return messages.filter((m) => !q || `${m.subject} ${people([m.from])} ${people(m.to)} ${m.snippet}`.toLowerCase().includes(q));
+const SORT_LABELS = [["received.desc", "Received: newest first"], ["received.asc", "Received: oldest first"], ["from.asc", "From: A to Z"], ["from.desc", "From: Z to A"], ["subject.asc", "Subject: A to Z"], ["subject.desc", "Subject: Z to A"], ["size.desc", "Size: largest first"], ["size.asc", "Size: smallest first"]];
+const RANGE_LABELS = [["1h", "1h"], ["today", "Today"], ["7d", "7d"]];
+
+function visible() {
+  return sortMessages(filterMessages(messages, view, { now: Date.now() }), view.sort);
+}
+
+function saveSort() { try { localStorage.setItem("inboxSort", formatSort(view.sort)); } catch {} }
+function storedSort() { try { return parseSort(localStorage.getItem("inboxSort")) ?? DEFAULT_SORT; } catch { return DEFAULT_SORT; } }
+
+function commitView() {
+  try { history.replaceState(null, "", formatHash(view)); } catch {}
+  if ($("#search").value !== view.q) $("#search").value = view.q;
+  renderList();
+}
+
+function changeView(patch) {
+  view = { ...view, ...patch };
+  commitView();
+}
+
+function changeSort(sort) {
+  view = { ...view, sort };
+  saveSort();
+  commitView();
+}
+
+function chip(label, pressed, onclick, extra = {}) {
+  return h("button", { type: "button", class: `btn btn-sm btn-outline-secondary${pressed ? " active" : ""}`, "aria-pressed": String(pressed), onclick, ...extra }, label);
+}
+
+function renderChips() {
+  const senders = senderOptions(messages);
+  const key = JSON.stringify([view, senders]);
+  if (key === chipKey) return;
+  chipKey = key;
+  const focused = document.activeElement?.dataset?.chip;
+  const senderList = !view.from || senders.some((s) => s.value === view.from) ? senders : [...senders, { value: view.from, label: view.from, count: 0 }];
+  const senderSelect = h("select", { class: "form-select form-select-sm w-auto mw-100", "aria-label": "Sender", "data-chip": "sender", onchange: (e) => changeView({ from: e.target.value }) },
+    h("option", { value: "" }, "All senders"),
+    senderList.map((s) => h("option", { value: s.value }, `${s.label} (${s.count})`)));
+  senderSelect.value = view.from;
+  const sortSelect = h("select", { class: "form-select form-select-sm w-auto d-lg-none", "aria-label": "Sort by", "data-chip": "sort", onchange: (e) => changeSort(parseSort(e.target.value) ?? DEFAULT_SORT) },
+    SORT_LABELS.map(([value, label]) => h("option", { value }, `Sort by ${label}`)));
+  sortSelect.value = formatSort(view.sort);
+  $("#chips").replaceChildren(...[
+    sortSelect,
+    chip("Unread", view.unread, () => changeView({ unread: !view.unread }), { "data-chip": "unread" }),
+    chip("Has attachment", view.att, () => changeView({ att: !view.att }), { "data-chip": "att" }),
+    RANGE_LABELS.map(([value, label]) => chip(label, view.range === value, () => changeView({ range: view.range === value ? "" : value }), { "data-chip": `range-${value}` })),
+    senders.length || view.from ? senderSelect : null,
+    hasFilters(view) ? h("button", { type: "button", class: "btn btn-sm btn-link", "data-act": "clearFilters" }, "Clear") : null,
+  ].flat().filter(Boolean));
+  if (focused) $$("[data-chip]", $("#chips")).find((el) => el.dataset.chip === focused)?.focus({ preventScroll: true });
+}
+
+function listHead() {
+  const arrow = (key) => (view.sort.key === key ? icon(view.sort.dir === "asc" ? "caret-up-fill" : "caret-down-fill", "ms-1") : null);
+  const state = (key) => (view.sort.key === key ? `, ${view.sort.dir === "asc" ? "ascending" : "descending"}` : "");
+  const button = (key, label) => h("button", { type: "button", class: "btn btn-link btn-sm p-0 sort-btn text-nowrap", "data-sort": key, title: `Sort by ${label}`, "aria-label": `Sort by ${label}${state(key)}`, onclick: () => changeSort(nextSort(view.sort, key)) }, label, arrow(key));
+  return h("div", { class: "row gx-1 small list-group-item bg-body-tertiary border-start-0 border-end-0 d-none d-lg-flex w-100 list-head" },
+    h("div", { class: "col-lg-3" }, button("from", "From")),
+    h("div", { class: "col-lg-6 col-xxl-7" }, button("subject", "Subject")),
+    h("div", { class: "col-1 text-end" }, button("size", "Size")),
+    h("div", { class: "col-2 col-xxl-1 text-end" }, button("received", "Received")));
 }
 
 function listRow(m) {
@@ -296,24 +368,34 @@ function compactRow(m) {
 }
 
 function renderList() {
-  const shown = filtered();
-  $("#countText").replaceChildren(shown.length ? `1-${shown.length} ` : "0 ", h("small", {}, "of"), ` ${messages.length}`);
-  $("#message-page").replaceChildren(shown.length
-    ? h("div", { class: "list-group my-2" }, shown.map(listRow))
-    : h("p", { class: "text-muted p-3" }, !me ? "No address yet. Use Add address to open an inbox." : messages.length ? "No matching messages" : "No messages yet."));
+  const shown = visible();
+  const focused = document.activeElement?.dataset?.sort;
+  $("#countText").replaceChildren(`${shown.length} `, h("small", {}, "of"), ` ${messages.length}`);
+  renderChips();
+  const note = $("#listNote");
+  note.classList.toggle("d-none", !truncated);
+  note.textContent = truncated ? "This inbox may hold more mail than is loaded. Sorting and filters apply to the loaded mail only." : "";
+  const empty = shown.length ? null : h("p", { class: "text-muted p-3" }, !me ? "No address yet. Use Add address to open an inbox." : messages.length ? "No matching messages" : "No messages yet.");
+  $("#message-page").replaceChildren(...[messages.length ? h("div", { class: "list-group my-2" }, listHead(), shown.map(listRow)) : null, empty].filter(Boolean));
+  if (focused) $$("[data-sort]").find((el) => el.dataset.sort === focused)?.focus({ preventScroll: true });
 }
 
 function renderCompact() {
-  $("#compactList").replaceChildren(...filtered().map(compactRow));
-  const index = messages.findIndex((m) => m.id === current?.id);
+  const shown = visible();
+  $("#compactList").replaceChildren(...shown.map(compactRow));
+  let order = shown;
+  let index = order.findIndex((m) => m.id === current?.id);
+  if (index < 0) { order = messages; index = order.findIndex((m) => m.id === current?.id); }
   const link = (el, target) => { if (target) el.setAttribute("href", `#/view/${target.id}`); else el.removeAttribute("href"); el.classList.toggle("disabled", !target); };
-  link($("#prevMsg"), messages[index - 1]);
-  link($("#nextMsg"), messages[index + 1]);
+  link($("#prevMsg"), order[index - 1]);
+  link($("#nextMsg"), order[index + 1]);
 }
 
 async function refresh() {
   try {
-    messages = (await (await api("/api/messages")).json()).messages;
+    const body = await (await api("/api/messages")).json();
+    messages = body.messages;
+    truncated = body.truncated === true;
   } catch { return; }
   refreshSidebars();
   if (current) renderCompact(); else renderList();
@@ -464,6 +546,7 @@ function syncSpot() {
 function showNoAddress() {
   me = null;
   messages = [];
+  truncated = false;
   showListLayout();
   $("#listBar").classList.add("d-none");
   refreshSidebars();
@@ -530,6 +613,8 @@ async function route() {
   closeMenu();
   const id = /^#\/view\/([\w-]+)$/.exec(location.hash)?.[1];
   if (!id) {
+    view = parseHash(location.hash, storedSort());
+    $("#search").value = view.q;
     showListLayout();
     renderList();
     return;
@@ -539,6 +624,8 @@ async function route() {
   current = await res.json();
   $("#listBar").classList.add("d-none");
   $("#navList").classList.add("d-none"); $("#navView").classList.remove("d-none");
+  $("#backLink").setAttribute("href", formatHash(view));
+  $("#returnLink").setAttribute("href", formatHash(view));
   setClass($("#sideList"), "d-none");
   setClass($("#sideView"), "d-none d-xl-flex h-100 col-xl-3 flex-column");
   setClass($("#main"), "d-flex flex-column col-xl-9 mh-100 ps-0 ps-md-2 pe-0");
@@ -611,11 +698,13 @@ async function manualRefresh() {
   await refresh();
 }
 
-async function enter(account) {
+async function enter(account, keepHash = false) {
   me = account;
   current = null;
   messages = [];
-  location.hash = "#/";
+  truncated = false;
+  chipKey = "";
+  if (!(keepHash && location.hash.startsWith("#/?"))) location.hash = "#/";
   closeModal();
   await refresh();
   await route();
@@ -646,6 +735,9 @@ document.addEventListener("click", async (e) => {
     if (!ok) return;
     if (body.active) enter(body);
     else showNoAddress();
+  } else if (act === "clearFilters") {
+    view = clearFilters(view);
+    commitView();
   } else if (act === "add") {
     openModal();
   } else if (act === "closeModal") {
@@ -657,7 +749,7 @@ document.addEventListener("click", async (e) => {
     refreshSidebars();
   } else if (act === "delete" && current && confirm("Delete this message?")) {
     await api(`/api/messages/${encodeURIComponent(current.id)}`, { method: "DELETE" });
-    location.hash = "#/";
+    location.hash = formatHash(view);
     await refresh();
   }
 });
@@ -703,7 +795,7 @@ $("#form").onsubmit = async (e) => {
   enter(body);
 };
 $("#searchForm").onsubmit = (e) => e.preventDefault();
-$("#search").oninput = () => { if (me && !current) renderList(); else if (me) renderCompact(); };
+$("#search").oninput = () => { if (me && !current) changeView({ q: $("#search").value.slice(0, 200) }); };
 window.addEventListener("hashchange", route);
 $("#addModal").addEventListener("mousedown", (e) => { if (e.target === e.currentTarget && me) closeModal(); });
 document.addEventListener("keydown", (e) => {
@@ -717,7 +809,7 @@ startPolling();
 pollStatus();
 (async () => {
   const res = await fetch("/api/me");
-  if (res.ok) enter(await res.json());
+  if (res.ok) enter(await res.json(), true);
   else showNoAddress();
 })();
 </script>
