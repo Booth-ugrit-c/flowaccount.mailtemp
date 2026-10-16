@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Added
+- Cloudflare-only version in `cloud/`: a Worker with a D1 database serves the same inbox UI and API (sessions, unlimited addresses, `+tag` names, sort and filter) from `mail.booth.pp.ua`, with no machine to run. Raw mail is stored as chunked base64 text, listed from header-only parsing, and parsed in the browser (postal-mime) for the message view. A cron keeps D1 under its size limit. Nothing feeds it yet; the capture Worker copy hook is a separate change.
 - `name+tag` addresses are real inboxes. `test+1` shows only mail to `test+1` and `test+1+...`; `test` still shows every `test+...` mail. `base` follows the existing name rule, `tag` is 1-30 chars `a-z 0-9 . _ -`, one `+` per name, reserved names are checked on `base`.
 - The inbox page opens first on every visit. With no address a dim overlay spotlights "Add address"; the button opens a centred modal (focus trap, Enter submits, Esc and backdrop close it only when an address exists).
 - Inbox list sort and filter, all in the browser:
