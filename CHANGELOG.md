@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Down alert: the capture Worker's 5-minute cron probes `/api/status` and posts to a Discord webhook (`ALERT_WEBHOOK_URL` secret): DOWN after 2 consecutive failed probes, a reminder at most every 2 hours, and RECOVERED with the downtime and the KV-buffered mail count. State lives in a new `MONITOR_STATE` KV namespace. See the README section "Down alert".
 
 ### Changed
+- A browser can save any number of addresses (the limit of 10 is gone). The list, its order and the active address are stored server-side in `users.sqlite` (new tables `sessions` and `session_accounts`) under a random session id that is kept only as a sha256 hash; the cookie carries just the signed session id (122 characters, constant). Cookies from the previous release (a list of up to 10 names, or the single-name format) are imported on the first request and replaced, with names, order and active address kept. New browsers are limited to 300 new sessions per IP per hour. The address list in the sidebar scrolls inside a bounded box.
 - The separate entry page is gone; adding an address happens in the modal.
 
 ### Fixed

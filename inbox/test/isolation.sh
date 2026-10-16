@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 INBOX=${INBOX_URL:-http://127.0.0.1:8090}
 BRIDGE=${BRIDGE_URL:-http://127.0.0.1:8080/ingest}
 MAILPIT=${MAILPIT_URL:-http://127.0.0.1:8025}
-COMPOSE="docker compose"
+COMPOSE=${COMPOSE:-docker compose}
 DOMAIN=booth.pp.ua
 envv() { grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '[:cntrl:]'; }
 HMAC_KEY=$(envv HMAC_KEY)
@@ -18,7 +18,7 @@ ROOT_AUTH="root:$(grep -m1 "^root:" secrets/ui_auth | cut -d: -f2- | tr -d "[:cn
 RUN=$(openssl rand -hex 4)
 TMP=$(mktemp -d)
 rand_ip() { echo "10.$((RANDOM % 250 + 1)).$((RANDOM % 250 + 1)).$((RANDOM % 250 + 1))"; }
-IP_MAIN=$(rand_ip); IP_LIMIT=$(rand_ip); IP_CAP=$(rand_ip)
+IP_MAIN=$(rand_ip); IP_LIMIT=$(rand_ip)
 RANDOM_NAMES=
 FAILS=0
 
@@ -41,8 +41,10 @@ cleanup() {
     let removed = 0;
     for (const name of '${RANDOM_NAMES}'.split(' ').filter(Boolean).concat(p)) {
       db.prepare('DELETE FROM hidden WHERE username LIKE ?').run(name);
+      db.prepare('DELETE FROM session_accounts WHERE username LIKE ?').run(name);
       removed += Number(db.prepare('DELETE FROM users WHERE username LIKE ?').run(name).changes);
     }
+    db.exec(\"DELETE FROM sessions WHERE id NOT IN (SELECT session FROM session_accounts) AND created < strftime('%s','now') - 300\");
     console.log(removed)" 2>/dev/null | tr -d '[:cntrl:]')
   rm -rf "$TMP"
   echo "cleanup: removed ${users:-?} test accounts and $( [ "$(mp_count "isolation-$RUN")" = "0" ] && echo "all isolation-$RUN messages" || echo "NOT all messages")"
@@ -119,11 +121,20 @@ expect "open with a form content type -> 415" "$(curl -s -o /dev/null -w '%{http
 
 expect "no cookie on /api/messages -> 401" "$(call nobody /api/messages)" 401
 cookie_of() { awk -F'	' '$6 == "inboxes" {print $7}' "$TMP/$1.jar" | tr -d '[:cntrl:]'; }
+sid_of() { cookie_of "$1" | cut -d. -f2; }
+tail_of() { cookie_of "$1" | cut -d. -f3-; }
+forged_cookie() {
+  local sid iat
+  sid=$(openssl rand 32 | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+  iat=$(date +%s)
+  echo "v3.$sid.$iat.$(printf 'v3:%s.%s' "$sid" "$iat" | openssl dgst -sha256 -hmac "$INBOX_KEY" -r | cut -d' ' -f1)"
+}
 status_with_cookie() { curl -s -o /dev/null -w '%{http_code}' -H "Cookie: $1" "$INBOX${2:-/api/messages}"; }
 COOKIE=$(cookie_of "$A")
 TAMPERED="${COOKIE%?}$([ "${COOKIE: -1}" = "0" ] && echo 1 || echo 0)"
 expect "tampered cookie on /api/messages -> 401" "$(status_with_cookie "inboxes=$TAMPERED")" 401
-expect "alice's signature under bob's payload -> 401" "$(status_with_cookie "inboxes=$(cookie_of "$B" | cut -d. -f1).${COOKIE#*.}")" 401
+expect "alice's signature under bob's session id -> 401" "$(status_with_cookie "inboxes=v3.$(sid_of "$B").$(tail_of "$A")")" 401
+expect "a validly signed cookie for an unknown session id -> 401" "$(status_with_cookie "inboxes=$(forged_cookie)")" 401
 expect "cookie lifetime is one year" "$(curl -s -D - -o /dev/null -X POST -H 'Content-Type: application/json' -d "{\"username\":\"$A\"}" "$INBOX/api/open" | grep -io 'max-age=[0-9]*' | head -1 | tr -d '[:cntrl:]')" "Max-Age=31536000"
 
 S_OWN="isolation-$RUN plain"; S_TAG="isolation-$RUN plus-tag"; S_ENV="isolation-$RUN envelope-only"
@@ -236,14 +247,14 @@ expect_one_of "name+1 delete of name+2's message -> 403 or 404" "$(call "$P+1" "
 expect "name+2's message survives name+1's delete attempt" "$(subject_count "$P+2" "$S_P2")" 1
 
 PLUS_COOKIE=$(cookie_of "$P+1")
-expect "+tag session cookie value is URL-safe (no +, %, space)" "$(printf '%s' "$PLUS_COOKIE" | grep -cE '^[A-Za-z0-9_-]+\.[0-9]+\.[0-9a-f]{64}$')" 1
-expect "cookie payload carries the +tag name" "$(node -e 'console.log(JSON.parse(Buffer.from(process.argv[1].split(".")[0], "base64url").toString()).active)' "$PLUS_COOKIE" | tr -d '[:cntrl:]')" "$P+1"
+expect "+tag session cookie value is URL-safe (no +, %, space)" "$(printf '%s' "$PLUS_COOKIE" | grep -cE '^v3\.[A-Za-z0-9_-]{43}\.[0-9]+\.[0-9a-f]{64}$')" 1
+expect "the cookie carries no address name" "$(printf '%s' "$PLUS_COOKIE" | grep -c "$P")" 0
 expect "+tag cookie sent as the only cookie -> 200" "$(status_with_cookie "inboxes=$PLUS_COOKIE" /api/me)" 200
 expect "+tag cookie sent after another cookie -> 200" "$(status_with_cookie "theme=dark; inboxes=$PLUS_COOKIE" /api/me)" 200
 expect "+tag cookie keeps name+1 active" "$(curl -s -H "Cookie: theme=dark; inboxes=$PLUS_COOKIE" "$INBOX/api/me" | jq -r .active)" "$P+1"
 PLUS_TAMPERED="${PLUS_COOKIE%?}$([ "${PLUS_COOKIE: -1}" = "0" ] && echo 1 || echo 0)"
 expect "tampered +tag cookie -> 401" "$(status_with_cookie "inboxes=$PLUS_TAMPERED")" 401
-expect "name+1 signature under name+2's payload -> 401" "$(status_with_cookie "inboxes=$(cookie_of "$P+2" | cut -d. -f1).${PLUS_COOKIE#*.}")" 401
+expect "name+1 signature under name+2's session id -> 401" "$(status_with_cookie "inboxes=v3.$(sid_of "$P+2").$(tail_of "$P+1")")" 401
 
 PM=plusmulti-$RUN
 expect "open the base name into a fresh browser -> 200" "$(open_inbox "$P" "$PM")" 200
@@ -266,7 +277,7 @@ call "$M" /api/me > /dev/null
 expect "me lists both addresses with bob active" "$(jq -c '[.accounts, .active]' "$TMP/out.json")" "[[\"$A\",\"$B\"],\"$B\"]"
 expect "active bob sees bob's mail" "$(subject_count "$M" "$S_BOB")" 1
 expect "active bob does not see alice's mail" "$(subject_count "$M" "$S_OWN")" 0
-BOTH_COOKIE=$(cookie_of "$M")
+BOTH_SID=$(sid_of "$M")
 expect "switch to alice -> 200" "$(post /api/switch "{\"username\":\"$A\"}" "$M")" 200
 expect "after the switch alice's mail is listed" "$(subject_count "$M" "$S_OWN")" 1
 expect "after the switch bob's mail is not listed" "$(subject_count "$M" "$S_BOB")" 0
@@ -274,8 +285,7 @@ expect "switch to an existing name that is not in the cookie -> 403" "$(post /ap
 expect "switch to an unknown name -> 403" "$(post /api/switch "{\"username\":\"ghost-$RUN\"}" "$M")" 403
 expect "switch without a cookie -> 401" "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"username\":\"$A\"}" "$INBOX/api/switch")" 401
 expect "rejected switches leave alice active" "$(subject_count "$M" "$S_BOB")" 0
-ALICE_ACTIVE_COOKIE=$(cookie_of "$M")
-expect "payload forced to active bob under alice's signature -> 401" "$(status_with_cookie "inboxes=${BOTH_COOKIE%%.*}.${ALICE_ACTIVE_COOKIE#*.}")" 401
+expect "switching keeps the same session id" "$(sid_of "$M")" "$BOTH_SID"
 expect "forget bob -> 200" "$(post /api/forget "{\"username\":\"$B\"}" "$M")" 200
 call "$M" /api/me > /dev/null
 expect "me no longer lists bob" "$(jq -c .accounts "$TMP/out.json")" "[\"$A\"]"
@@ -294,13 +304,52 @@ expect "old cookie becomes a one-item list" "$(jq -c '[.accounts, .active]' "$TM
 expect "old cookie reads alice's mail" "$(curl -s -H "Cookie: inbox=$A.$LEGACY_IAT.$LEGACY_SIG" "$INBOX/api/messages" | jq --arg s "$S_OWN" '[.messages[] | select(.subject == $s)] | length')" 1
 expect "old cookie signed for another name -> 401" "$(status_with_cookie "inbox=$B.$LEGACY_IAT.$LEGACY_SIG")" 401
 
-CAP="cap-$RUN"
+expect "old cookie reply sets a session cookie in the new format" "$(curl -s -D - -o /dev/null -H "Cookie: inbox=$A.$LEGACY_IAT.$LEGACY_SIG" "$INBOX/api/me" | grep -ci '^set-cookie: inboxes=v3\.')" 1
+
+v2_cookie() {
+  local payload iat
+  payload=$(printf '{"accounts":[%s],"active":"%s"}' "$1" "$2" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+  iat=$(date +%s)
+  echo "$payload.$iat.$(printf 'v2:%s.%s' "$payload" "$iat" | openssl dgst -sha256 -hmac "$INBOX_KEY" -r | cut -d' ' -f1)"
+}
+IP_V2=$(rand_ip)
+V2_NAMES=(); V2_JSON=""
+for i in $(seq 1 10); do
+  V2_NAMES+=("v2m-$RUN-$i")
+  V2_JSON="$V2_JSON${V2_JSON:+,}\"v2m-$RUN-$i\""
+  open_inbox "v2m-$RUN-$i" "v2seed" "$IP_V2" > /dev/null
+done
+V2_COOKIE=$(v2_cookie "$V2_JSON" "v2m-$RUN-4")
+curl -s -D "$TMP/v2.headers" -o "$TMP/out.json" -H "Cookie: inboxes=$V2_COOKIE" "$INBOX/api/me"
+expect "a current v2 cookie with 10 names keeps the same list in order" "$(jq -c .accounts "$TMP/out.json")" "$(printf '%s\n' "${V2_NAMES[@]}" | jq -R . | jq -sc .)"
+expect "a current v2 cookie keeps its active address" "$(jq -r .active "$TMP/out.json")" "v2m-$RUN-4"
+V3_COOKIE=$(grep -i '^set-cookie: inboxes=' "$TMP/v2.headers" | sed 's/^[^=]*=//; s/;.*//' | tr -d '[:cntrl:]')
+expect "migration reissues the cookie in the new format" "$(printf '%s' "$V3_COOKIE" | grep -cE '^v3\.[A-Za-z0-9_-]{43}\.[0-9]+\.[0-9a-f]{64}$')" 1
+curl -s -o "$TMP/out.json" -H "Cookie: inboxes=$V3_COOKIE" "$INBOX/api/me"
+expect "the reissued cookie reads back the 10 names" "$(jq '.accounts | length' "$TMP/out.json")" 10
+expect "the reissued cookie reads back the active address" "$(jq -r .active "$TMP/out.json")" "v2m-$RUN-4"
+expect "the migrated cookie stays short" "$([ ${#V3_COOKIE} -lt 200 ] && echo short || echo long)" short
+expect "a v2 cookie with a bad signature does not migrate -> 401" "$(status_with_cookie "inboxes=${V2_COOKIE%?}$([ "${V2_COOKIE: -1}" = "0" ] && echo 1 || echo 0)")" 401
+expect "a v2 cookie naming an unknown address does not migrate -> 401" "$(status_with_cookie "inboxes=$(v2_cookie "\"ghost-$RUN\"" "ghost-$RUN")")" 401
+
+UNL="unl-$RUN"
 codes=""
-for i in $(seq 1 10); do codes="$codes $(open_inbox "cap-$RUN-$i" "$CAP" "$IP_CAP")"; done
-expect "10 addresses fit in one browser" "$(echo $codes | tr ' ' '\n' | sort -u | tr '\n' ' ')" "200 "
-expect "11th address in one browser -> 400" "$(open_inbox "cap-$RUN-11" "$CAP" "$IP_CAP")" 400
-open_inbox "cap-$RUN-11" cap-check "$IP_CAP" > /dev/null
-expect "rejected 11th name was not created on the server" "$(jq -r .created "$TMP/out.json")" true
+for i in $(seq 1 150); do
+  codes="$codes $(open_inbox "unl-$RUN-$i" "$UNL" "$(rand_ip)")"
+  case $i in 1|10|150) printf '%s' "$(cookie_of "$UNL")" | wc -c | tr -d ' ' > "$TMP/len-$i";; esac
+done
+expect "150 addresses fit in one browser" "$(echo $codes | tr ' ' '\n' | sort -u | tr '\n' ' ')" "200 "
+call "$UNL" /api/me > /dev/null
+expect "me lists all 150 addresses" "$(jq '.accounts | length' "$TMP/out.json")" 150
+expect "the 150 addresses keep their order" "$(jq -r '[.accounts[0], .accounts[74], .accounts[149]] | join(",")' "$TMP/out.json" | tr -d '[:cntrl:]')" "unl-$RUN-1,unl-$RUN-75,unl-$RUN-150"
+expect "the last opened address is active" "$(jq -r .active "$TMP/out.json")" "unl-$RUN-150"
+expect "the cookie has the same length with 1, 10 and 150 addresses" "$(cat "$TMP/len-1" "$TMP/len-10" "$TMP/len-150" | sort -u | wc -l | tr -d ' ')" 1
+echo "INFO  cookie value length with 1, 10 and 150 addresses: $(cat "$TMP/len-1") $(cat "$TMP/len-10") $(cat "$TMP/len-150")"
+expect "switch to the 20th address of 150 -> 200" "$(post /api/switch "{\"username\":\"unl-$RUN-20\"}" "$UNL")" 200
+expect "forget the 75th address of 150 -> 200" "$(post /api/forget "{\"username\":\"unl-$RUN-75\"}" "$UNL")" 200
+call "$UNL" /api/me > /dev/null
+expect "149 addresses remain and the switched one is active" "$(jq -c '[(.accounts | length), .active]' "$TMP/out.json")" "[149,\"unl-$RUN-20\"]"
+expect "a new browser still sees none of them" "$(curl -s -o /dev/null -w '%{http_code}' "$INBOX/api/me")" 401
 
 expect "GET /api/random -> 200" "$(curl -s -o "$TMP/out.json" -w '%{http_code}' "$INBOX/api/random")" 200
 RANDOM_NAME=$(jq -r .username "$TMP/out.json" | tr -d '[:cntrl:]')
@@ -362,6 +411,12 @@ MODAL_RC=$?
 grep '^PASS\|^FAIL' "$TMP/modal.txt" | sed 's/^\(PASS\|FAIL\)  /\1  modal: /'
 FAILS=$((FAILS + $(grep -c '^FAIL' "$TMP/modal.txt")))
 [ "$MODAL_RC" = "0" ] || { fail "modal and spotlight checks" "script exited $MODAL_RC"; head -c 600 "$TMP/modal.txt"; }
+timeout 180 node inbox/test/many.mjs "$UNL" 150 "many-extra-$RUN" > "$TMP/many.txt" 2>&1
+MANY_RC=$?
+grep '^PASS\|^FAIL' "$TMP/many.txt" | sed 's/^\(PASS\|FAIL\)  /\1  many addresses: /'
+grep '^INFO' "$TMP/many.txt"
+FAILS=$((FAILS + $(grep -c '^FAIL' "$TMP/many.txt")))
+[ "$MANY_RC" = "0" ] || { fail "many-address browser checks" "script exited $MANY_RC"; head -c 600 "$TMP/many.txt"; }
 expect "no Thai text in the served UI files" "$(LC_ALL=C.UTF-8 grep -rlIP '[\x{0E00}-\x{0E7F}]' inbox/src | wc -l | tr -d ' ')" 0
 expect "GET /api/status without a cookie -> 200" "$(curl -s -o "$TMP/status.json" -w '%{http_code}' "$INBOX/api/status")" 200
 expect "status reports mailpit and bridge ok" "$(jq -c '[.mailpit, .bridge]' "$TMP/status.json")" '["ok","ok"]'

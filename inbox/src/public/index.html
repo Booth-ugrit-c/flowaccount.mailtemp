@@ -30,6 +30,7 @@
 .user-wrap #user:focus{position:relative;z-index:5}
 .user-wrap .random-btn{width:2rem;height:2rem;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--bs-secondary-color);text-decoration:none;z-index:6}
 .user-wrap .random-btn:hover:not(:disabled){color:var(--bs-body-color);background:var(--bs-secondary-bg)}
+.account-scroll{max-height:min(40vh,18rem);overflow-y:auto;overscroll-behavior:contain}
 .account-row .account-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #spot{position:fixed;inset:0;z-index:1060;pointer-events:none}
 #spotDim{position:absolute;inset:0;background:rgba(0,0,0,.72);pointer-events:auto}
@@ -148,7 +149,7 @@
       <div class="mt-2 text-muted small">Also receives <code>name+tag@booth.pp.ua</code></div>
     </div>
     <div class="mt-4 px-1 text-muted small" data-accounts-label>Addresses in this browser</div>
-    <div class="list-group mt-1 mb-2" data-accounts></div>
+    <div class="list-group account-scroll position-relative mt-1 mb-2" data-accounts></div>
     <button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-3" data-act="add"><i class="bi bi-plus-lg me-1"></i>Add address</button>
   </div>
   <div class="bg-body ms-sm-n1 me-sm-n1 py-2 text-muted small about-mailpit">
@@ -227,8 +228,6 @@ async function api(path, options = {}) {
 
 function setClass(el, value) { el.className = value; }
 
-const MAX_ACCOUNTS = 10;
-
 function accountRow(name) {
   const active = name === me.active;
   const address = `${name}@booth.pp.ua`;
@@ -238,15 +237,21 @@ function accountRow(name) {
 }
 
 function fillSidebar(root) {
+  const old = $("[data-accounts]", root);
+  const previous = old ? { active: old.dataset.active, top: old.scrollTop } : null;
   root.replaceChildren(...$("#sideTpl").content.cloneNode(true).children);
   $(".address-block", root).classList.toggle("d-none", !me);
   $("[data-addr]", root).textContent = me?.address ?? "";
   $("[data-user]", root).textContent = me?.active ?? "No address";
   $("[data-theme-icon]", root).className = `bi ${THEME_ICONS[window.themePref()]}`;
-  $("[data-accounts]", root).replaceChildren(...(me?.accounts ?? []).map(accountRow));
+  const list = $("[data-accounts]", root);
+  list.replaceChildren(...(me?.accounts ?? []).map(accountRow));
+  const selected = $(".list-group-item-primary", list);
+  if (previous && previous.active === (me?.active ?? "")) list.scrollTop = previous.top;
+  else if (selected) list.scrollTop = Math.max(0, selected.offsetTop - (list.clientHeight - selected.offsetHeight) / 2);
+  list.dataset.active = me?.active ?? "";
   $("[data-accounts-label]", root).classList.toggle("d-none", !me);
   $("[data-act=add]", root).classList.toggle("mt-3", !me);
-  $("[data-act=add]", root).disabled = (me?.accounts.length ?? 0) >= MAX_ACCOUNTS;
   const unread = messages.filter((m) => !m.read).length;
   const badge = $("[data-unread]", root);
   badge.textContent = unread;
