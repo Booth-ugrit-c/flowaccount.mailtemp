@@ -118,7 +118,7 @@ The quota counts message bytes, not the SQLite file: SQLite keeps its file size 
 ## Tests
 
 - `bash janitor/test/janitor.sh` checks the quota janitor in an isolated compose project.
-- `node --test "inbox/test/*.test.mjs"` runs the name, ownership and cookie unit tests (no stack needed).
+- `node --test "inbox/test/*.test.mjs"` runs the name, ownership, session and cookie-migration unit tests (no stack needed).
 - `bash inbox/test/isolation.sh` runs against the running stack (needs `curl`, `jq`, `openssl`, and Node with Playwright from `e2e-helper/node_modules` for the browser checks).
 - `bash tools/l-bridge.sh` and `bash tools/l-worker.sh` are local bridge/Worker checks. They delete all Mailpit mail, so run them only on a disposable stack.
 - Run the Worker locally with Node >= 22: `cd worker && npm install && npx wrangler dev --local --test-scheduled`, with `HMAC_KEY` in `worker/.dev.vars`.

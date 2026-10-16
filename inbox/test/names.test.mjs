@@ -45,13 +45,16 @@ test("a +tag name round-trips through the session cookie", () => {
   const store = openAccounts(path.join(dir, "users.sqlite"), "unit-test-key");
   try {
     for (const name of ["test", "test+1"]) store.open(name);
-    const [set] = store.issue({ accounts: ["test", "test+1"], active: "test+1" }, true);
+    const sid = store.start();
+    store.add(sid, "test");
+    store.add(sid, "test+1");
+    const [set] = store.issue(sid, true);
     const value = /^inboxes=([^;]*)/.exec(set)[1];
-    assert.match(value, /^[A-Za-z0-9_-]+\.\d+\.[0-9a-f]{64}$/);
-    assert.equal(value.replace(/\+/g, " "), value);
+    assert.match(value, /^v3\.[A-Za-z0-9_-]{43}\.\d+\.[0-9a-f]{64}$/);
     assert.equal(decodeURIComponent(value), value);
     for (const header of [`inboxes=${value}`, `theme=dark; inboxes=${value}`, `inboxes=${value}; theme=dark`, `a=1;  inboxes=${value}; b=2`]) {
-      assert.deepEqual(store.sessionFrom(header), { accounts: ["test", "test+1"], active: "test+1" }, header);
+      const { accounts, active } = store.sessionFrom(header);
+      assert.deepEqual({ accounts, active }, { accounts: ["test", "test+1"], active: "test+1" }, header);
     }
     const flipped = value.slice(0, -1) + (value.endsWith("0") ? "1" : "0");
     assert.equal(store.sessionFrom(`inboxes=${flipped}`), null);

@@ -1,7 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import crypto from "node:crypto";
-import { openAccounts, limiter, usernameError, MAX_ACCOUNTS } from "./accounts.js";
+import { openAccounts, limiter, usernameError } from "./accounts.js";
 import { currentStatus } from "./status.js";
 import { address, mailpit, listFor, ownMessage, scrubRaw, scrubHeaders } from "./mail.js";
 
@@ -11,6 +11,7 @@ const PORT = Number(process.env.PORT ?? 8090);
 const accounts = openAccounts(process.env.USERS_DB ?? "/data/users.sqlite", INBOX_KEY);
 const creations = limiter(30, 3600_000);
 const randomRequests = limiter(30, 60_000);
+const sessionStarts = limiter(300, 3600_000);
 const page = fs.readFileSync(new URL("./public/index.html", import.meta.url));
 const VENDOR = {
   "app.css": "text/css; charset=utf-8",
@@ -63,8 +64,8 @@ function randomInbox(req, res) {
 const meBody = ({ accounts: list, active }) => ({ active, address: active ? address(active) : null, accounts: list });
 
 function sessionReply(req, res, session, extra = {}) {
-  const cookies = session.accounts.length ? accounts.issue(session, isSecure(req)) : accounts.clear();
-  send(res, 200, { ...meBody(session), ...extra }, "application/json", { "Set-Cookie": cookies });
+  const cookies = session ? accounts.issue(session.sid, isSecure(req)) : accounts.clear();
+  send(res, 200, { ...meBody(session ?? { accounts: [], active: null }), ...extra }, "application/json", { "Set-Cookie": cookies });
 }
 
 async function readUsername(req, res) {
@@ -81,29 +82,28 @@ async function openInbox(req, res) {
   if (username === undefined) return;
   const problem = usernameError(username);
   if (problem) return fail(res, 400, problem);
-  const current = accounts.sessionFrom(req.headers.cookie) ?? { accounts: [], active: null };
-  const known = current.accounts.includes(username);
-  if (!known && current.accounts.length >= MAX_ACCOUNTS) return fail(res, 400, `too many addresses in this browser (max ${MAX_ACCOUNTS})`);
+  const current = accounts.sessionFrom(req.headers.cookie);
   const ip = clientIp(req);
   if (creations.full(ip) && !accounts.exists(username)) return fail(res, 429, "too many new addresses, try later");
+  if (!current && sessionStarts.full(ip)) return fail(res, 429, "too many new browsers, try later");
   const { created } = accounts.open(username);
   if (created) creations.hit(ip);
-  sessionReply(req, res, { accounts: known ? current.accounts : [...current.accounts, username], active: username }, { created });
+  if (!current) sessionStarts.hit(ip);
+  sessionReply(req, res, accounts.add(current?.sid ?? accounts.start(), username), { created });
 }
 
 async function switchInbox(req, res, session) {
   const username = await readUsername(req, res);
   if (username === undefined) return;
   if (!session.accounts.includes(username)) return fail(res, 403, "address is not opened in this browser");
-  sessionReply(req, res, { accounts: session.accounts, active: username });
+  sessionReply(req, res, accounts.activate(session.sid, username));
 }
 
 async function forgetInbox(req, res, session) {
   const username = await readUsername(req, res);
   if (username === undefined) return;
   if (!session.accounts.includes(username)) return fail(res, 403, "address is not opened in this browser");
-  const rest = session.accounts.filter((name) => name !== username);
-  sessionReply(req, res, { accounts: rest, active: session.active === username ? rest.at(-1) ?? null : session.active });
+  sessionReply(req, res, accounts.forget(session.sid, username));
 }
 
 const summary = (m) => ({
@@ -171,6 +171,7 @@ async function route(req, res) {
   if (segments[0] !== "api") return fail(res, 404, "not found");
   const session = accounts.sessionFrom(req.headers.cookie);
   if (!session) return fail(res, 401, "sign in required");
+  if (session.migrated) res.setHeader("Set-Cookie", accounts.issue(session.sid, isSecure(req)));
   if (req.method === "GET" && pathname === "/api/me") return send(res, 200, meBody(session));
   if (req.method === "POST" && pathname === "/api/switch") return switchInbox(req, res, session);
   if (req.method === "POST" && pathname === "/api/forget") return forgetInbox(req, res, session);
