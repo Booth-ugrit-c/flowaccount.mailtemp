@@ -17,8 +17,10 @@ export function owns(username, recipient) {
 const isRecipient = (message, username) =>
   [message.To, message.Cc, message.Bcc].some((list) => (list ?? []).some((p) => owns(username, p.Address)));
 
+const CANDIDATE_LIMIT = 200;
+
 async function candidates(term) {
-  const res = await mailpit(`/search?query=${encodeURIComponent(`addressed:"${term}"`)}&limit=200`);
+  const res = await mailpit(`/search?query=${encodeURIComponent(`addressed:"${term}"`)}&limit=${CANDIDATE_LIMIT}`);
   if (!res.ok) throw new Error(`mailpit search ${res.status}`);
   return (await res.json()).messages ?? [];
 }
@@ -26,10 +28,12 @@ async function candidates(term) {
 export async function listFor(username, hidden) {
   const found = await Promise.all([candidates(address(username)), candidates(`${username}+`)]);
   const byId = new Map(found.flat().map((m) => [m.ID, m]));
-  return [...byId.values()]
+  const truncated = found.some((list) => list.length >= CANDIDATE_LIMIT);
+  const messages = [...byId.values()]
     .filter((m) => isRecipient(m, username) && !hidden.has(m.ID))
     .sort((a, b) => b.Created.localeCompare(a.Created))
     .map((m) => ({ id: m.ID, from: m.From, to: m.To, cc: m.Cc, subject: m.Subject, created: m.Created, snippet: m.Snippet, attachments: m.Attachments, size: m.Size, read: m.Read }));
+  return { messages, truncated };
 }
 
 export async function ownMessage(username, id, hidden) {

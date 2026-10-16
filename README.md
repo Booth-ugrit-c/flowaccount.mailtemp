@@ -118,12 +118,13 @@ The quota counts message bytes, not the SQLite file: SQLite keeps its file size 
 ## Tests
 
 - `bash janitor/test/janitor.sh` checks the quota janitor in an isolated compose project.
-- `node --test "inbox/test/*.test.mjs"` runs the name, ownership, session and cookie-migration unit tests (no stack needed).
+- `node --test "inbox/test/*.test.mjs"` runs the name, ownership, session, cookie-migration, list sort/filter and list-truncation unit tests (no stack needed).
 - `bash inbox/test/isolation.sh` runs against the running stack (needs `curl`, `jq`, `openssl`, and Node with Playwright from `e2e-helper/node_modules` for the browser checks).
 - `bash tools/l-bridge.sh` and `bash tools/l-worker.sh` are local bridge/Worker checks. They delete all Mailpit mail, so run them only on a disposable stack.
 - Run the Worker locally with Node >= 22: `cd worker && npm install && npx wrangler dev --local --test-scheduled`, with `HMAC_KEY` in `worker/.dev.vars`.
 
 ## Notes
 
+- The inbox list sorts by column and filters with chips and search operators, in the browser, on the loaded mail only (at most 200 direct plus 200 `name+` candidates per address; the page says so when the cap is hit). Search takes `from:` `to:` `subject:` `has:attachment` `is:unread` (values may be quoted: `from:"john smith"`) plus free text; every part must match. The view is kept in the URL hash, for example `#/?q=from%3Abob&sort=size.desc&tag=01&range=today&unread=1&att=1&from=bob%40example.com`.
 - Anyone who types a username sees that inbox (Mailinator style). `name+tag` is its own inbox (for example `test+1`) and `name` also shows every `name+tag` mail. Reserved names (`qa*`, `h13*`, `root`, `admin`, ...) cannot be opened, so those mails are visible only in `/admin/`.
 - `/admin/` is protected by basic auth only; choose a strong `ADMIN_PASSWORD`.
