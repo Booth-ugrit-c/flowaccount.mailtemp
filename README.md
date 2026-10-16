@@ -68,6 +68,22 @@ The page polls it every 5 s (the same timer as the mail list), on the entry card
 
 Detection takes up to about 10 s (5 s cache plus the 5 s poll).
 
+### Down alert (`worker/`)
+
+Every 5-minute cron run of the capture Worker probes `STATUS_URL` (default `https://mailpit.booth.pp.ua/api/status`, 8 s timeout). Healthy means HTTP 200 with `mailpit` and `bridge` both `"ok"`; anything else is a failed probe. It posts to a Discord webhook:
+
+- DOWN once, after 2 consecutive failed probes, with the reason (status code or the component that is not ok);
+- a "still DOWN" reminder at most every 2 hours;
+- RECOVERED once on the first healthy probe, with the downtime and the number of mails buffered in `CAPTURE_FALLBACK`.
+
+Messages never contain mail addresses or content. The monitor runs beside the replay loop through `ctx.waitUntil`, so a monitor failure cannot block the replay.
+
+- Secret: `npx wrangler secret put ALERT_WEBHOOK_URL` (a Discord webhook URL; keep it out of the repo). Without it the monitor logs `MONITOR_DISABLED` and does nothing.
+- State: a separate KV namespace bound as `MONITOR_STATE` (create it with `npx wrangler kv namespace create MONITOR_STATE` and put the id in `worker/wrangler.toml`). It is written only when the state changes.
+- Test without downtime: set `STATUS_URL` in `worker/wrangler.toml` to a path that returns a non-200 status, deploy, wait for two cron runs (DOWN), restore the real value, deploy, wait one run (RECOVERED).
+- Turn off: `npx wrangler secret delete ALERT_WEBHOOK_URL`.
+- Tests (no dependencies): `node --test "worker/test/*.test.js"`; CI runs them in the `build` job.
+
 ### Edge fallback (`status-worker/`)
 
 If the PC, the tunnel or the app is down, the browser cannot load the page at all, so no in-page banner is possible. `status-worker/` is a small Cloudflare Worker that sits in front of the page: it fetches the origin, and when that throws or answers 502/503/504/520-530 (a tunnel without a connector answers 530) it serves a self-contained "System is down, mail is queued" page (HTTP 503, inline CSS, no external assets) that retries every 15 s and reloads when the service is back. Everything else passes through untouched.

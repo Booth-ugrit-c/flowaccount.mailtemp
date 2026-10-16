@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Down alert: the capture Worker's 5-minute cron probes `/api/status` and posts to a Discord webhook (`ALERT_WEBHOOK_URL` secret): DOWN after 2 consecutive failed probes, a reminder at most every 2 hours, and RECOVERED with the downtime and the KV-buffered mail count. State lives in a new `MONITOR_STATE` KV namespace. See the README section "Down alert".
+
 ## [1.0.0] - 2026-10-14
 
 First release. Real internet mail for a test domain is captured into Mailpit and shown in a per-address web inbox, so QA no longer needs disposable third-party addresses. Design decisions are in `docs/ADR.md`; operations are in `docs/runbook-setup.md` and `docs/runbook-incident.md`.
