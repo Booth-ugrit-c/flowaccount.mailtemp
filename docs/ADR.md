@@ -221,11 +221,12 @@ The project receives real internet mail for a test domain and shows it in a web 
 - QA wanted the simplest possible use: type a name and read its mail.
 
 **Decision.** A separate `inbox` web app is served at the site root.
-- **Entry.** One field: the username, with the domain fixed. A new name is created; an existing name opens with its history. There are no passwords and no sign-in or sign-out.
+- **Entry.** The page is always the inbox layout. "Add address" opens a modal with one field: the username, with the domain fixed. A new name is created; an existing name opens with its history. With no address (first visit, forgotten last address, lost session) the page is dimmed with a spotlight on "Add address". There are no passwords and no sign-in or sign-out.
+- **Name shape.** `base` or `base+tag`. `base` is 3-30 chars `a-z 0-9 . _ -` starting with a letter or digit; `tag` is 1-30 chars `a-z 0-9 . _ -`; exactly one `+` is allowed. `base+tag` is its own address: it sees mail to `base+tag` and `base+tag+...` only, while `base` still sees every `base+...` mail. One `+` keeps the ownership rule trivial: the owner prefix is the whole name and a tag can never contain the separator. Names are stored lower-case.
 - **Session.** A signed (`INBOX_KEY`) HttpOnly cookie, SameSite=Lax, valid for 1 year, marked Secure over https. It holds up to 10 addresses with one active. Switching to a name that is not in the cookie returns 403. "Forget" removes an address from this browser only.
 - **Random Username.** The server picks an unused `rand-xxxxxx` name. Requests are limited to 30 per minute per IP, and the button has a 2 s cooldown.
 - **Limits.** At most 30 new names per IP per hour; opening an existing name is unlimited.
-- **Reserved names cannot be opened:** anything starting with `qa` or `h13`, plus `root`, `admin`, `postmaster`, `abuse`, `hostmaster`, `webmaster`, `noreply`, `no-reply`, `security` and `support`. Mail to them is visible only in `/admin`.
+- **Reserved names cannot be opened:** the check runs on `base`, so `root+1` and `qa1+x` are refused too. Anything starting with `qa` or `h13`, plus `root`, `admin`, `postmaster`, `abuse`, `hostmaster`, `webmaster`, `noreply`, `no-reply`, `security` and `support`. Mail to them is visible only in `/admin`.
 - **Isolation, checked server-side on every request:**
   - A message belongs to a user only when a To, Cc or Bcc address has the domain and the local part `<name>` or `<name>+<tag>`, matched exactly. Mailpit search only narrows the candidates, because its `addressed:` filter matches substrings.
   - `Bcc:` and `Received ... for <addr>` are scrubbed from raw and header views, so recipients cannot see each other.

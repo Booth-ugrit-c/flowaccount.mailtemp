@@ -23,51 +23,29 @@
 <style>
 #preview{width:100%;height:calc(100vh - 380px);min-height:320px;border:0;background:#fff}
 .btn-copy{--bs-btn-color:var(--bs-body-bg);--bs-btn-bg:var(--bs-body-color);--bs-btn-border-color:var(--bs-body-color);--bs-btn-hover-color:var(--bs-body-bg);--bs-btn-hover-bg:var(--bs-emphasis-color);--bs-btn-hover-border-color:var(--bs-emphasis-color);--bs-btn-active-color:var(--bs-body-bg);--bs-btn-active-bg:var(--bs-emphasis-color);--bs-btn-active-border-color:var(--bs-emphasis-color)}
-#entryView,#appView{min-height:0}
+#appView{min-height:0}
+#statusBanner{position:relative;z-index:1061}
 .user-wrap{width:1%;min-width:0}
 .user-wrap #user{padding-right:2.5rem}
 .user-wrap #user:focus{position:relative;z-index:5}
 .user-wrap .random-btn{width:2rem;height:2rem;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--bs-secondary-color);text-decoration:none;z-index:6}
 .user-wrap .random-btn:hover:not(:disabled){color:var(--bs-body-color);background:var(--bs-secondary-bg)}
 .account-row .account-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#spot{position:fixed;inset:0;z-index:1060;pointer-events:none}
+#spotDim{position:absolute;inset:0;background:rgba(0,0,0,.72);pointer-events:auto}
+#spotRing{position:absolute;border-radius:.6rem;box-shadow:0 0 0 3px #fff,0 0 18px 4px rgba(255,255,255,.55);animation:spotPulse 1.6s ease-in-out infinite}
+#spotArrow{font-size:1.25rem;vertical-align:-.2rem}
+#spotHint{position:absolute;width:max-content;max-width:min(340px,calc(100vw - 32px));padding:.55rem .8rem;border-radius:.5rem;background:var(--bs-body-bg);color:var(--bs-body-color);box-shadow:0 .5rem 1.5rem rgba(0,0,0,.4);font-size:.9rem}
+@keyframes spotPulse{50%{box-shadow:0 0 0 3px #fff,0 0 26px 8px rgba(255,255,255,.3)}}
+@media (prefers-reduced-motion:reduce){#spotRing{animation:none}}
+#addModal .modal-dialog{max-width:440px}
 </style>
 </head>
 <body class="h-100">
 <div class="container-fluid h-100 d-flex flex-column" id="app">
   <div id="statusBanner" class="alert alert-danger rounded-0 border-0 mb-0 text-center py-2 small flex-shrink-0 d-none" style="margin-left:calc(var(--bs-gutter-x) * -.5);margin-right:calc(var(--bs-gutter-x) * -.5)" role="status"></div>
 
-  <div id="entryView" class="d-none flex-column flex-fill">
-    <div class="navbar navbar-expand-lg row flex-shrink-0 bg-primary text-white d-print-none" data-bs-theme="dark">
-      <div class="col-auto"><a href="#/" class="navbar-brand text-white me-0"><img src="/vendor/mailpit.svg" alt="Mailpit"><span class="ms-2">Mailpit</span></a></div>
-    </div>
-    <div class="flex-fill overflow-auto d-flex align-items-center justify-content-center p-3">
-      <div class="card shadow-sm w-100" style="max-width:400px">
-        <div class="card-body p-4">
-          <div class="text-center mb-3">
-            <span class="d-inline-block bg-primary rounded-3 p-2"><img src="/vendor/mailpit.svg" alt="Mailpit" style="height:48px"></span>
-            <h4 class="mt-2 mb-0">Mailpit</h4>
-            <div class="small text-muted">Pick an address on booth.pp.ua</div>
-          </div>
-          <form id="form">
-            <label class="form-label small" for="user">Email address</label>
-            <div class="input-group flex-nowrap mb-3">
-              <div class="position-relative flex-grow-1 user-wrap">
-                <input id="user" class="form-control rounded-end-0" placeholder="username" autocomplete="off" autocapitalize="none" spellcheck="false" required>
-                <button id="randomBtn" type="button" class="btn btn-sm btn-link random-btn position-absolute top-50 end-0 translate-middle-y me-1" data-act="random" aria-label="Random username" title="Random username"><i id="randomIcon" class="bi bi-shuffle"></i><span id="randomCount" class="d-none"></span></button>
-              </div>
-              <span class="input-group-text">@booth.pp.ua</span>
-            </div>
-            <div id="authErr" class="alert alert-danger py-2 small d-none" role="alert"></div>
-            <button id="go" type="submit" class="btn btn-primary w-100">Open inbox</button>
-          </form>
-          <p class="small text-muted text-center mt-3 mb-0">New name: a new inbox is created. Existing name: its mail is shown.</p>
-          <p id="cancelRow" class="small text-center mt-2 mb-0 d-none"><a href="#/" data-act="cancelEntry">Back to my inbox</a></p>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="appView" class="d-none flex-column flex-fill">
+  <div id="appView" class="d-flex flex-column flex-fill">
     <div id="navList" class="navbar navbar-expand-lg row flex-shrink-0 bg-primary text-white d-print-none" data-bs-theme="dark">
       <div class="col-xl-2 col-md-3 col-auto pe-0"><a href="#/" class="navbar-brand text-white me-0"><img src="/vendor/mailpit.svg" alt="Mailpit"><span class="ms-2 d-none d-sm-inline">Mailpit</span></a></div>
       <div class="col col-md-4k col-lg-5 col-xl-6">
@@ -125,6 +103,39 @@
   </div>
 </div>
 
+<div id="spot" class="d-none">
+  <div id="spotDim"></div>
+  <div id="spotRing"></div>
+  <div id="spotHint" role="status"><i id="spotArrow" class="bi bi-arrow-left-short me-1"></i>Add an address to open your inbox</div>
+</div>
+
+<div id="addBackdrop" class="modal-backdrop show d-none"></div>
+<div id="addModal" class="modal" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="addTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form id="form" novalidate>
+        <div class="modal-header border-0 pb-0">
+          <h5 id="addTitle" class="modal-title">Add address</h5>
+          <button id="addClose" type="button" class="btn-close d-none" data-act="closeModal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label small" for="user">Email address</label>
+          <div class="input-group flex-nowrap mb-3">
+            <div class="position-relative flex-grow-1 user-wrap">
+              <input id="user" class="form-control rounded-end-0" placeholder="username" autocomplete="off" autocapitalize="none" spellcheck="false" required aria-describedby="addNote authErr">
+              <button id="randomBtn" type="button" class="btn btn-sm btn-link random-btn position-absolute top-50 end-0 translate-middle-y me-1" data-act="random" aria-label="Random username" title="Random username"><i id="randomIcon" class="bi bi-shuffle"></i><span id="randomCount" class="d-none"></span></button>
+            </div>
+            <span class="input-group-text">@booth.pp.ua</span>
+          </div>
+          <div id="authErr" class="alert alert-danger py-2 small d-none" role="alert"></div>
+          <button id="go" type="submit" class="btn btn-primary w-100">Open inbox</button>
+          <p id="addNote" class="small text-muted text-center mt-3 mb-0">Names are shared: anyone who opens a name sees its mail. A new name creates a new inbox. Use <code>name+tag</code>, such as <code>test+1</code>, for a separate inbox.</p>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <template id="sideTpl">
   <div class="flex-grow-1 overflow-y-auto me-n3 pe-3">
     <div class="list-group my-2">
@@ -136,7 +147,7 @@
       <button type="button" class="btn btn-sm btn-copy w-100" data-act="copy"><i class="bi bi-clipboard me-1" data-copy-icon></i><span data-copy-label>Copy address</span></button>
       <div class="mt-2 text-muted small">Also receives <code>name+tag@booth.pp.ua</code></div>
     </div>
-    <div class="mt-4 px-1 text-muted small">Addresses in this browser</div>
+    <div class="mt-4 px-1 text-muted small" data-accounts-label>Addresses in this browser</div>
     <div class="list-group mt-1 mb-2" data-accounts></div>
     <button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-3" data-act="add"><i class="bi bi-plus-lg me-1"></i>Add address</button>
   </div>
@@ -210,12 +221,11 @@ function fullDate(iso) {
 
 async function api(path, options = {}) {
   const res = await fetch(path, { ...options, headers: { "Content-Type": "application/json" } });
-  if (res.status === 401) { me = null; messages = []; current = null; showEntry(); throw new Error("401"); }
+  if (res.status === 401) { me = null; messages = []; current = null; showNoAddress(); throw new Error("401"); }
   return res;
 }
 
 function setClass(el, value) { el.className = value; }
-function toggleFlex(el, on) { el.classList.toggle("d-none", !on); el.classList.toggle("d-flex", on); }
 
 const MAX_ACCOUNTS = 10;
 
@@ -229,11 +239,14 @@ function accountRow(name) {
 
 function fillSidebar(root) {
   root.replaceChildren(...$("#sideTpl").content.cloneNode(true).children);
-  $("[data-addr]", root).textContent = me.address;
-  $("[data-user]", root).textContent = me.active;
+  $(".address-block", root).classList.toggle("d-none", !me);
+  $("[data-addr]", root).textContent = me?.address ?? "";
+  $("[data-user]", root).textContent = me?.active ?? "No address";
   $("[data-theme-icon]", root).className = `bi ${THEME_ICONS[window.themePref()]}`;
-  $("[data-accounts]", root).replaceChildren(...me.accounts.map(accountRow));
-  $("[data-act=add]", root).disabled = me.accounts.length >= MAX_ACCOUNTS;
+  $("[data-accounts]", root).replaceChildren(...(me?.accounts ?? []).map(accountRow));
+  $("[data-accounts-label]", root).classList.toggle("d-none", !me);
+  $("[data-act=add]", root).classList.toggle("mt-3", !me);
+  $("[data-act=add]", root).disabled = (me?.accounts.length ?? 0) >= MAX_ACCOUNTS;
   const unread = messages.filter((m) => !m.read).length;
   const badge = $("[data-unread]", root);
   badge.textContent = unread;
@@ -246,7 +259,7 @@ function refreshSidebars() {
   const footer = $("#viewFooter");
   footer.replaceChildren(...$("#sideTpl").content.cloneNode(true).children);
   $(".flex-grow-1", footer).remove();
-  $("[data-user]", footer).textContent = me.active;
+  $("[data-user]", footer).textContent = me?.active ?? "No address";
   $("[data-theme-icon]", footer).className = `bi ${THEME_ICONS[window.themePref()]}`;
 }
 
@@ -282,7 +295,7 @@ function renderList() {
   $("#countText").replaceChildren(shown.length ? `1-${shown.length} ` : "0 ", h("small", {}, "of"), ` ${messages.length}`);
   $("#message-page").replaceChildren(shown.length
     ? h("div", { class: "list-group my-2" }, shown.map(listRow))
-    : h("p", { class: "text-muted p-3" }, messages.length ? "No matching messages" : "No messages yet."));
+    : h("p", { class: "text-muted p-3" }, !me ? "No address yet. Use Add address to open an inbox." : messages.length ? "No matching messages" : "No messages yet."));
 }
 
 function renderCompact() {
@@ -386,35 +399,133 @@ async function download(path, fileName) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
-function showEntry() {
-  toggleFlex($("#appView"), false);
-  toggleFlex($("#entryView"), true);
-  $("#cancelRow").classList.toggle("d-none", !me);
+const narrow = () => !matchMedia("(min-width: 768px)").matches;
+const addButton = () => $(`${narrow() ? "#offBody" : "#sideList"} [data-act=add]`);
+let modalOpen = false;
+let returnFocus = null;
+let spotFrame = 0;
+let spotKey = "";
+
+function placeSpot() {
+  const button = addButton();
+  if (!button || !button.getClientRects().length) return;
+  const r = button.getBoundingClientRect();
+  const pad = 6;
+  const rad = 10;
+  const w = innerWidth;
+  const h = innerHeight;
+  const x = r.left - pad;
+  const y = r.top - pad;
+  const bw = r.width + pad * 2;
+  const bh = r.height + pad * 2;
+  const key = [x, y, bw, bh, w, h].join();
+  if (key === spotKey) return;
+  spotKey = key;
+  const arc = (dx, dy) => `A${rad} ${rad} 0 0 1 ${dx} ${dy}`;
+  $("#spotDim").style.clipPath = `path(evenodd, "M0 0H${w}V${h}H0Z M${x + rad} ${y}H${x + bw - rad}${arc(x + bw, y + rad)}V${y + bh - rad}${arc(x + bw - rad, y + bh)}H${x + rad}${arc(x, y + bh - rad)}V${y + rad}${arc(x + rad, y)}Z")`;
+  Object.assign($("#spotRing").style, { left: `${x}px`, top: `${y}px`, width: `${bw}px`, height: `${bh}px` });
+  const hint = $("#spotHint");
+  const hw = hint.offsetWidth;
+  const hh = hint.offsetHeight;
+  const gap = 12;
+  let left;
+  let top;
+  let arrow;
+  if (x + bw + gap + hw <= w - 8) { left = x + bw + gap; top = r.top + r.height / 2 - hh / 2; arrow = "left"; }
+  else if (y + bh + gap + hh <= h - 8) { left = r.left + r.width / 2 - hw / 2; top = y + bh + gap; arrow = "up"; }
+  else { left = r.left + r.width / 2 - hw / 2; top = Math.max(8, y - gap - hh); arrow = "down"; }
+  hint.style.left = `${Math.min(Math.max(left, 8), Math.max(8, w - hw - 8))}px`;
+  hint.style.top = `${Math.max(top, 8)}px`;
+  $("#spotArrow").className = `bi bi-arrow-${arrow}-short me-1`;
+}
+
+function spotLoop() {
+  if (narrow() && !$("#offcanvas").classList.contains("show")) openMenu();
+  else if (!narrow() && !$("#backdrop").classList.contains("d-none")) closeMenu();
+  placeSpot();
+  spotFrame = requestAnimationFrame(spotLoop);
+}
+
+function syncSpot() {
+  const wanted = !me && !modalOpen;
+  $("#spot").classList.toggle("d-none", !wanted);
+  cancelAnimationFrame(spotFrame);
+  if (!wanted) return;
+  spotKey = "";
+  spotLoop();
+  setTimeout(() => { if (!me && !modalOpen) addButton()?.focus({ preventScroll: true }); }, 400);
+}
+
+function showNoAddress() {
+  me = null;
+  messages = [];
+  showListLayout();
+  $("#listBar").classList.add("d-none");
+  refreshSidebars();
+  renderList();
+  syncModalChrome();
+  syncSpot();
+}
+
+function syncModalChrome() { $("#addClose").classList.toggle("d-none", !me); }
+
+function openModal() {
+  if (modalOpen) return;
+  returnFocus = document.activeElement;
+  modalOpen = true;
+  closeMenu();
+  $("#addModal").classList.add("d-block");
+  $("#addModal").setAttribute("aria-hidden", "false");
+  $("#addBackdrop").classList.remove("d-none");
+  $("#app").inert = true;
   $("#user").value = "";
   $("#authErr").classList.add("d-none");
-  closeMenu();
+  syncModalChrome();
+  syncSpot();
   $("#user").focus();
 }
 
-function hideEntry() {
-  toggleFlex($("#entryView"), false);
-  toggleFlex($("#appView"), true);
+function closeModal() {
+  if (modalOpen) {
+    modalOpen = false;
+    $("#addModal").classList.remove("d-block");
+    $("#addModal").setAttribute("aria-hidden", "true");
+    $("#addBackdrop").classList.add("d-none");
+    $("#app").inert = false;
+    (returnFocus?.isConnected ? returnFocus : addButton())?.focus({ preventScroll: true });
+  }
+  syncSpot();
+}
+
+function trapFocus(e) {
+  const items = $$("button, input, a[href]", $("#addModal")).filter((el) => !el.disabled && el.getClientRects().length);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items.at(-1);
+  const active = document.activeElement;
+  if (!$("#addModal").contains(active)) { e.preventDefault(); first.focus(); }
+  else if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
 }
 
 function openMenu() { $("#offcanvas").classList.add("show"); $("#backdrop").classList.remove("d-none"); $("#backdrop").classList.add("show"); }
 function closeMenu() { $("#offcanvas").classList.remove("show"); $("#backdrop").classList.add("d-none"); $("#backdrop").classList.remove("show"); }
+
+function showListLayout() {
+  current = null;
+  $("#listBar").classList.remove("d-none");
+  $("#navList").classList.remove("d-none"); $("#navView").classList.add("d-none");
+  setClass($("#sideList"), "d-none d-md-flex h-100 col-xl-2 col-md-3 flex-column");
+  setClass($("#sideView"), "d-none");
+  setClass($("#main"), "d-flex flex-column col-xl-10 col-md-9 mh-100 ps-0 ps-md-2 pe-0");
+}
 
 async function route() {
   if (!me) return;
   closeMenu();
   const id = /^#\/view\/([\w-]+)$/.exec(location.hash)?.[1];
   if (!id) {
-    current = null;
-    $("#listBar").classList.remove("d-none");
-    $("#navList").classList.remove("d-none"); $("#navView").classList.add("d-none");
-    setClass($("#sideList"), "d-none d-md-flex h-100 col-xl-2 col-md-3 flex-column");
-    setClass($("#sideView"), "d-none");
-    setClass($("#main"), "d-flex flex-column col-xl-10 col-md-9 mh-100 ps-0 ps-md-2 pe-0");
+    showListLayout();
     renderList();
     return;
   }
@@ -500,7 +611,7 @@ async function enter(account) {
   current = null;
   messages = [];
   location.hash = "#/";
-  hideEntry();
+  closeModal();
   await refresh();
   await route();
   startPolling();
@@ -529,18 +640,16 @@ document.addEventListener("click", async (e) => {
     const { ok, body } = await postJson("/api/forget", { username: name });
     if (!ok) return;
     if (body.active) enter(body);
-    else { me = null; messages = []; current = null; showEntry(); }
+    else showNoAddress();
   } else if (act === "add") {
-    showEntry();
+    openModal();
+  } else if (act === "closeModal") {
+    if (me) closeModal();
   } else if (act === "random") {
     randomUsername();
   } else if (act === "theme") {
     window.setThemePref(NEXT_THEME[window.themePref()]);
     refreshSidebars();
-  } else if (act === "cancelEntry") {
-    e.preventDefault();
-    hideEntry();
-    route();
   } else if (act === "delete" && current && confirm("Delete this message?")) {
     await api(`/api/messages/${encodeURIComponent(current.id)}`, { method: "DELETE" });
     location.hash = "#/";
@@ -591,14 +700,20 @@ $("#form").onsubmit = async (e) => {
 $("#searchForm").onsubmit = (e) => e.preventDefault();
 $("#search").oninput = () => { if (me && !current) renderList(); else if (me) renderCompact(); };
 window.addEventListener("hashchange", route);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeMenu(); $("#downloadMenu").classList.remove("show"); } });
+$("#addModal").addEventListener("mousedown", (e) => { if (e.target === e.currentTarget && me) closeModal(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Tab" && modalOpen) trapFocus(e);
+  if (e.key !== "Escape") return;
+  $("#downloadMenu").classList.remove("show");
+  if (modalOpen) { if (me) closeModal(); } else if (me) closeMenu();
+});
 
 startPolling();
 pollStatus();
 (async () => {
   const res = await fetch("/api/me");
   if (res.ok) enter(await res.json());
-  else showEntry();
+  else showNoAddress();
 })();
 </script>
 </body>

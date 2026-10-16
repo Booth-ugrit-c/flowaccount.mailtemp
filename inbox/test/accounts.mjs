@@ -18,6 +18,7 @@ const activeName = () => side.locator("[data-account].list-group-item-primary").
 const hasMail = async (subject) => (await page.locator("#message-page .message", { hasText: subject }).count()) > 0;
 const settle = (ms = 1500) => page.waitForTimeout(ms);
 const openAddress = async (name) => {
+  if (!(await page.locator("#user").isVisible())) await side.locator("[data-act=add]").click();
   await page.fill("#user", name);
   await page.click("#go");
   await settle();
@@ -125,7 +126,7 @@ await side.locator(`[data-account="${nameB}"] [data-act=forget]`).click();
 await settle(800);
 await side.locator(`[data-account="${nameA}"] [data-act=forget]`).click();
 await settle();
-check("forgetting the last address shows the entry card", await page.locator("#entryView").isVisible());
+check("forgetting the last address shows the spotlight on the empty inbox", (await page.locator("#spot").isVisible()) && (await side.isVisible()));
 const after = await page.evaluate(() => fetch("/api/messages").then((r) => r.status));
 check("reads are refused once every address is forgotten", after === 401, String(after));
 

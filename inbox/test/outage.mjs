@@ -53,6 +53,7 @@ async function waitStatus(service, wanted) {
 }
 
 await page.goto(base);
+await page.click("#sideList [data-act=add]");
 await page.fill("#user", `outage-${Math.random().toString(36).slice(2, 8)}`);
 await page.click("#go");
 await page.waitForSelector("#sideList [data-addr]");
@@ -65,7 +66,7 @@ if (await waitBanner("Inbox service is down. Your mail is safe and will appear w
   const entry = await (await browser.newContext({ viewport: { width: 1366, height: 800 } })).newPage();
   await entry.goto(base);
   const onEntry = await entry.locator("#statusBanner").filter({ hasText: "Inbox service is down" }).waitFor({ state: "visible", timeout: 20000 }).then(() => true, () => false);
-  check("mailpit down: the banner also shows on the entry card", onEntry && (await entry.locator("#entryView").isVisible()));
+  check("mailpit down: the banner also shows on a first visit with no address", onEntry && (await entry.locator("#spot").isVisible()));
   await entry.close();
 }
 compose("start", "mailpit");
