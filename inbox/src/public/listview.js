@@ -2,10 +2,8 @@ export const SORT_KEYS = ["from", "subject", "size", "received"];
 export const RANGES = ["1h", "today", "7d"];
 export const DEFAULT_SORT = Object.freeze({ key: "received", dir: "desc" });
 export const MAX_QUERY_LENGTH = 200;
-export const MAX_TAG_CHIPS = 12;
 
 const FIRST_DIRECTION = { from: "asc", subject: "asc", size: "desc", received: "desc" };
-const TAG_RE = /^[a-z0-9._-]{1,30}$/;
 const CONTROL_RE = /[\u0000-\u001f\u007f]/g;
 const TOKEN_RE = /([A-Za-z]+):(?:"([^"]*)(?:"|$)|(\S*))|"([^"]*)(?:"|$)|(\S+)/g;
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
@@ -53,8 +51,8 @@ export function parseSort(text) {
 export const formatSort = (sort) => `${sort.key}.${sort.dir}`;
 export const nextSort = (current, key) => (current.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: FIRST_DIRECTION[key] });
 
-export const defaultState = (sort = DEFAULT_SORT) => ({ q: "", sort: { key: sort.key, dir: sort.dir }, unread: false, att: false, range: "", tag: "", from: "" });
-export const hasFilters = (state) => Boolean(state.q.trim() || state.unread || state.att || state.range || state.tag || state.from);
+export const defaultState = (sort = DEFAULT_SORT) => ({ q: "", sort: { key: sort.key, dir: sort.dir }, unread: false, att: false, range: "", from: "" });
+export const hasFilters = (state) => Boolean(state.q.trim() || state.unread || state.att || state.range || state.from);
 export const clearFilters = (state) => defaultState(state.sort);
 
 export function parseHash(hash, fallbackSort = DEFAULT_SORT) {
@@ -65,8 +63,6 @@ export function parseHash(hash, fallbackSort = DEFAULT_SORT) {
   state.q = (params.get("q") ?? "").replace(CONTROL_RE, " ").slice(0, MAX_QUERY_LENGTH);
   state.sort = parseSort(params.get("sort")) ?? state.sort;
   if (RANGES.includes(params.get("range"))) state.range = params.get("range");
-  const tag = (params.get("tag") ?? "").toLowerCase();
-  if (TAG_RE.test(tag)) state.tag = tag;
   state.unread = params.get("unread") === "1";
   state.att = params.get("att") === "1";
   state.from = (params.get("from") ?? "").replace(CONTROL_RE, "").trim().toLowerCase().slice(0, 254);
@@ -75,40 +71,10 @@ export function parseHash(hash, fallbackSort = DEFAULT_SORT) {
 
 export function formatHash(state) {
   const q = state.q.trim();
-  const rest = [["tag", state.tag], ["range", state.range], ["unread", state.unread ? "1" : ""], ["att", state.att ? "1" : ""], ["from", state.from]].filter(([, value]) => value);
+  const rest = [["range", state.range], ["unread", state.unread ? "1" : ""], ["att", state.att ? "1" : ""], ["from", state.from]].filter(([, value]) => value);
   const sorted = formatSort(state.sort) !== formatSort(DEFAULT_SORT);
   if (!q && !rest.length && !sorted) return "#/";
   return `#/?${new URLSearchParams([...(q ? [["q", q]] : []), ["sort", formatSort(state.sort)], ...rest])}`;
-}
-
-const splitAddress = (address) => {
-  const text = String(address ?? "").toLowerCase();
-  const at = text.lastIndexOf("@");
-  return { local: text.slice(0, at), domain: text.slice(at + 1) };
-};
-
-export function recipientTags(m, base) {
-  const own = splitAddress(base);
-  const tags = new Set();
-  for (const p of [...(m.to ?? []), ...(m.cc ?? [])]) {
-    const { local, domain } = splitAddress(p.Address);
-    if (domain !== own.domain || !local.startsWith(`${own.local}+`)) continue;
-    const tag = local.slice(own.local.length + 1).split("+")[0];
-    if (TAG_RE.test(tag)) tags.add(tag);
-  }
-  return tags;
-}
-
-export function tagCounts(messages, base) {
-  const counts = new Map();
-  for (const m of messages) for (const tag of recipientTags(m, base)) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-  return counts;
-}
-
-export function topTags(counts, selected = "", max = MAX_TAG_CHIPS) {
-  const ranked = [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, max);
-  if (selected && !ranked.some(([tag]) => tag === selected)) ranked.push([selected, counts.get(selected) ?? 0]);
-  return ranked;
 }
 
 export function senderOptions(messages) {
@@ -134,14 +100,13 @@ export function rangeStart(range, now) {
   return null;
 }
 
-export function filterMessages(messages, state, { base, now }) {
+export function filterMessages(messages, state, { now }) {
   const terms = parseQuery(state.q);
   const since = rangeStart(state.range, now);
   return messages.filter((m) =>
     (!state.unread || !m.read)
     && (!state.att || hasAttachment(m))
     && (since === null || Date.parse(m.created) >= since)
-    && (!state.tag || recipientTags(m, base).has(state.tag))
     && (!state.from || m.from?.Address?.toLowerCase() === state.from)
     && matchesQuery(m, terms));
 }
@@ -158,4 +123,14 @@ export function sortMessages(messages, sort) {
   const sign = sort.dir === "asc" ? 1 : -1;
   const compare = typeof value(messages[0] ?? {}) === "number" ? (a, b) => a - b : (a, b) => collator.compare(a, b);
   return [...messages].sort((a, b) => sign * compare(value(a), value(b)));
+}
+
+export function orderAccounts(names) {
+  const split = (name) => { const at = name.indexOf("+"); return at < 0 ? [name, ""] : [name.slice(0, at), name.slice(at + 1)]; };
+  const natural = (a, b) => collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
+  return [...names].sort((a, b) => {
+    const [baseA, tagA] = split(a);
+    const [baseB, tagB] = split(b);
+    return natural(baseA, baseB) || (tagA === "" ? 0 : 1) - (tagB === "" ? 0 : 1) || natural(tagA, tagB);
+  });
 }

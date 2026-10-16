@@ -168,7 +168,7 @@
 </template>
 
 <script type="module">
-import { DEFAULT_SORT, clearFilters, filterMessages, formatHash, formatSort, hasFilters, nextSort, parseHash, parseSort, people, person, senderOptions, sortMessages, tagCounts, topTags } from "/listview.js";
+import { DEFAULT_SORT, clearFilters, filterMessages, formatHash, formatSort, hasFilters, nextSort, orderAccounts, parseHash, parseSort, people, person, senderOptions, sortMessages } from "/listview.js";
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const h = (tag, attrs = {}, ...kids) => {
@@ -255,7 +255,7 @@ function fillSidebar(root) {
   $("[data-user]", root).textContent = me?.active ?? "No address";
   $("[data-theme-icon]", root).className = `bi ${THEME_ICONS[window.themePref()]}`;
   const list = $("[data-accounts]", root);
-  list.replaceChildren(...(me?.accounts ?? []).map(accountRow));
+  list.replaceChildren(...orderAccounts(me?.accounts ?? []).map(accountRow));
   const selected = $(".list-group-item-primary", list);
   if (previous && previous.active === (me?.active ?? "")) list.scrollTop = previous.top;
   else if (selected) list.scrollTop = Math.max(0, selected.offsetTop - (list.clientHeight - selected.offsetHeight) / 2);
@@ -282,7 +282,7 @@ const SORT_LABELS = [["received.desc", "Received: newest first"], ["received.asc
 const RANGE_LABELS = [["1h", "1h"], ["today", "Today"], ["7d", "7d"]];
 
 function visible() {
-  return sortMessages(filterMessages(messages, view, { base: me?.address, now: Date.now() }), view.sort);
+  return sortMessages(filterMessages(messages, view, { now: Date.now() }), view.sort);
 }
 
 function saveSort() { try { localStorage.setItem("inboxSort", formatSort(view.sort)); } catch {} }
@@ -310,9 +310,8 @@ function chip(label, pressed, onclick, extra = {}) {
 }
 
 function renderChips() {
-  const tags = topTags(tagCounts(messages, me?.address), view.tag);
   const senders = senderOptions(messages);
-  const key = JSON.stringify([view, tags, senders]);
+  const key = JSON.stringify([view, senders]);
   if (key === chipKey) return;
   chipKey = key;
   const focused = document.activeElement?.dataset?.chip;
@@ -329,7 +328,6 @@ function renderChips() {
     chip("Unread", view.unread, () => changeView({ unread: !view.unread }), { "data-chip": "unread" }),
     chip("Has attachment", view.att, () => changeView({ att: !view.att }), { "data-chip": "att" }),
     RANGE_LABELS.map(([value, label]) => chip(label, view.range === value, () => changeView({ range: view.range === value ? "" : value }), { "data-chip": `range-${value}` })),
-    tags.map(([tag, count]) => chip(`+${tag} (${count})`, view.tag === tag, () => changeView({ tag: view.tag === tag ? "" : tag }), { "data-chip": `tag-${tag}` })),
     senders.length || view.from ? senderSelect : null,
     hasFilters(view) ? h("button", { type: "button", class: "btn btn-sm btn-link", "data-act": "clearFilters" }, "Clear") : null,
   ].flat().filter(Boolean));

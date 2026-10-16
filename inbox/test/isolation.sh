@@ -417,6 +417,8 @@ grep '^PASS\|^FAIL' "$TMP/many.txt" | sed 's/^\(PASS\|FAIL\)  /\1  many addresse
 grep '^INFO' "$TMP/many.txt"
 FAILS=$((FAILS + $(grep -c '^FAIL' "$TMP/many.txt")))
 [ "$MANY_RC" = "0" ] || { fail "many-address browser checks" "script exited $MANY_RC"; head -c 600 "$TMP/many.txt"; }
+FN="filters-$RUN"
+for name in "$FN" "$FN+10" "${FN}2+01" "${FN}2" "$FN+2" "$FN+01"; do open_inbox "$name" filters-open "$(rand_ip)" > /dev/null; done
 timeout 240 node inbox/test/filters.mjs "filters-$RUN" ${SHOT_DIR:-} > "$TMP/filters.txt" 2>&1
 FILTERS_RC=$?
 grep '^PASS\|^FAIL' "$TMP/filters.txt" | sed 's/^\(PASS\|FAIL\)  /\1  list sort and filter: /'

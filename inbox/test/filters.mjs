@@ -126,12 +126,7 @@ await page.locator('[data-chip="range-7d"]').click();
 await settle(page);
 check("clicking the active range clears it", sameList(await rows(page), SORTED["received.desc"]) && (await pressed(page, "range-7d")) === "false");
 
-const tagLabels = await page.locator("[data-chip^=tag-]").evaluateAll((els) => els.map((el) => el.textContent));
-check("tag chips show +tag and a count", sameList(tagLabels, ["+01 (2)", "+02 (2)"]), tagLabels.join());
-await page.locator('[data-chip="tag-01"]').click();
-await settle(page);
-check("a tag chip keeps mail addressed to that tag", sameList(await rows(page), ["fx2", "fx3"]) && /tag=01/.test(await hash(page)), `${(await rows(page)).join()} ${await hash(page)}`);
-await clear(page);
+check("no tag chips are rendered", (await page.locator("[data-chip^=tag-]").count()) === 0 && !/\+0[12]/.test(await page.locator("#chips").innerText()));
 
 const senderOptions = await page.locator("[data-chip=sender] option").evaluateAll((els) => els.map((el) => el.textContent));
 check("the sender dropdown lists each sender once with a count", sameList(senderOptions, ["All senders", "Alice Admin <alice@example.com> (2)", "Bob Builder <bob@example.com> (2)", "Carol <carol@example.org> (1)"]), senderOptions.join(" | "));
@@ -171,14 +166,13 @@ await page.locator("[data-chip=unread]").click();
 await page.locator('[data-chip="range-today"]').click();
 await page.locator("[data-chip=att]").click();
 await page.locator("[data-chip=sender]").selectOption("bob@example.com");
-await page.locator('[data-chip="tag-02"]').click();
 await page.locator("[data-sort=size]").click();
 await search(page, "from:bob");
 const shared = await hash(page);
-check("the shared hash holds every setting", ["q=from%3Abob", "sort=size.desc", "tag=02", "att=1", "from=bob%40example.com"].every((part) => shared.includes(part)), shared);
+check("the shared hash holds every setting", ["q=from%3Abob", "sort=size.desc", "att=1", "from=bob%40example.com"].every((part) => shared.includes(part)), shared);
 const guest = await context.newPage();
 await load(guest, shared);
-check("opening the hash in a new tab rebuilds the view", sameList(await rows(guest), ["fx5"]) && (await guest.locator("#search").inputValue()) === "from:bob" && (await pressed(guest, "att")) === "true" && (await pressed(guest, "tag-02")) === "true" && (await guest.locator("[data-chip=sender]").inputValue()) === "bob@example.com", `${(await rows(guest)).join()} ${await hash(guest)}`);
+check("opening the hash in a new tab rebuilds the view", sameList(await rows(guest), ["fx5"]) && (await guest.locator("#search").inputValue()) === "from:bob" && (await pressed(guest, "att")) === "true" && (await guest.locator("[data-chip=sender]").inputValue()) === "bob@example.com", `${(await rows(guest)).join()} ${await hash(guest)}`);
 await guest.close();
 
 await page.locator("#message-page a.message >> nth=0").click();
@@ -201,6 +195,13 @@ check("a hostile hash is shown as plain text and runs nothing", (await page.eval
 check("a hostile hash falls back to safe defaults", (await pressed(page, "unread")) === "false" && (await page.locator("[data-chip^=range-][aria-pressed=true]").count()) === 0 && (await page.locator("[data-sort] i.bi-caret-down-fill").count()) === 1);
 await load(page, "#/?%%%&q=%E0%A4%A");
 check("a malformed hash does not break the page", (await page.locator("#chips button").count()) > 3);
+await clear(page);
+
+await load(page, "#/?tag=01&sort=size.desc");
+check("an old link with tag= is ignored and keeps the rest", sameList(await rows(page), SORTED["size.desc"]) && (await page.locator("[data-chip^=tag-]").count()) === 0, (await rows(page)).join());
+await page.locator("[data-chip=unread]").click();
+await settle(page);
+check("the ignored tag does not come back into the hash", !/tag=/.test(await hash(page)), await hash(page));
 await clear(page);
 
 check("no truncation note when the list is complete", await page.locator("#listNote").isHidden());
@@ -256,6 +257,23 @@ check("narrow: chips filter too", sameList(await rows(phonePage), ["fx1", "fx5"]
 check("narrow: nothing scrolls sideways", await phonePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), String(await phonePage.evaluate(() => document.documentElement.scrollWidth)));
 if (shotDir) await phonePage.screenshot({ path: `${shotDir}/filters-narrow.png` });
 await phone.close();
+
+const order = await browser.newContext({ viewport: { width: 1366, height: 800 } });
+const orderPage = await order.newPage();
+await orderPage.goto(base);
+const opened = [`${username}+10`, `${username}2+01`, username, `${username}2`, `${username}+2`, `${username}+01`];
+for (const name of opened) {
+  const status = await orderPage.evaluate((n) => fetch("/api/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: n }) }).then((r) => r.status), name);
+  if (status !== 200) check(`open ${name}`, false, String(status));
+}
+await orderPage.goto("about:blank");
+await orderPage.goto(base);
+await orderPage.locator("#sideList [data-account]").first().waitFor();
+const listed = await orderPage.locator("#sideList [data-account]").evaluateAll((els) => els.map((el) => el.dataset.account));
+check("addresses list each base followed by its tags in natural order", sameList(listed, [username, `${username}+01`, `${username}+2`, `${username}+10`, `${username}2`, `${username}2+01`]), listed.join());
+check("the active address is highlighted", (await orderPage.locator("#sideList [data-account].list-group-item-primary").getAttribute("data-account")) === `${username}+01`);
+check("adding an address creates no tag entries", listed.length === opened.length, String(listed.length));
+await order.close();
 
 const wide = await context.newPage();
 await load(wide);

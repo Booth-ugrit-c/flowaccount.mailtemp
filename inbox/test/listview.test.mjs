@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_SORT, clearFilters, defaultState, filterMessages, formatHash, formatSort, hasFilters, nextSort,
-  parseHash, parseQuery, parseSort, recipientTags, senderOptions, sortMessages, tagCounts, topTags,
+  orderAccounts, parseHash, parseQuery, parseSort, senderOptions, sortMessages,
 } from "../src/public/listview.js";
 
 const NOW = new Date(2026, 9, 16, 15, 30).getTime();
@@ -12,7 +12,7 @@ const BASE = "test@booth.pp.ua";
 const who = (name, address) => ({ Name: name, Address: address });
 const mail = (id, over = {}) => ({ id, from: who("Alice", "alice@example.com"), to: [who("", BASE)], cc: [], subject: `subject ${id}`, snippet: `snippet ${id}`, created: ago(HOUR), attachments: 0, size: 1000, read: true, ...over });
 const ids = (list) => list.map((m) => m.id);
-const run = (messages, patch = {}) => filterMessages(messages, { ...defaultState(), ...patch }, { base: BASE, now: NOW });
+const run = (messages, patch = {}) => filterMessages(messages, { ...defaultState(), ...patch }, { now: NOW });
 
 test("parseQuery reads each operator and keeps free text", () => {
   const terms = parseQuery("from:bob to:ploy subject:invoice has:attachment is:unread hello");
@@ -83,37 +83,11 @@ test("Today starts at local midnight", () => {
   assert.deepEqual(ids(run(list, { range: "today" })), ["after"]);
 });
 
-test("tags come from recipient local parts of the current address only", () => {
+test("to: can still narrow to one tag address", () => {
   const to = (...locals) => locals.map((l) => who("", `${l}@booth.pp.ua`));
-  const list = [mail("a", { to: to("test+01") }), mail("b", { to: to("test+01", "test+02") }), mail("c", { to: to("test") }), mail("d", { to: to("test+01+deep") }), mail("e", { to: to("other+03", "test+04"), cc: to("test+05") })];
-  assert.deepEqual([...recipientTags(list[1], BASE)].sort(), ["01", "02"]);
-  assert.deepEqual([...recipientTags(list[3], BASE)], ["01"]);
-  assert.deepEqual([...recipientTags(list[4], BASE)].sort(), ["04", "05"]);
-  assert.deepEqual([...tagCounts(list, BASE)].sort(), [["01", 3], ["02", 1], ["04", 1], ["05", 1]]);
-  assert.deepEqual(ids(run(list, { tag: "01" })), ["a", "b", "d"]);
-  assert.deepEqual(ids(run(list, { tag: "03" })), []);
-});
-
-test("a tag on another domain or a longer name does not count", () => {
-  const m = mail("a", { to: [who("", "test+09@other.org"), who("", "testy+08@booth.pp.ua")] });
-  assert.equal(recipientTags(m, BASE).size, 0);
-});
-
-test("tags that are not valid name tags are not offered as chips", () => {
-  const m = mail("a", { to: [who("", 'test+a"b@booth.pp.ua'), who("", "test+UP@booth.pp.ua"), who("", `test+${"x".repeat(31)}@booth.pp.ua`), who("", "test+@booth.pp.ua")] });
-  assert.deepEqual([...recipientTags(m, BASE)], ["up"]);
-});
-
-test("a tag-addressed inbox lists the tags below itself", () => {
-  const m = mail("a", { to: [who("", "test+1+x@booth.pp.ua")] });
-  assert.deepEqual([...recipientTags(m, "test+1@booth.pp.ua")], ["x"]);
-});
-
-test("topTags ranks by count, caps the list and always keeps the selected tag", () => {
-  const counts = new Map([["a", 1], ["b", 5], ["c", 5], ["d", 2]]);
-  assert.deepEqual(topTags(counts, "", 3), [["b", 5], ["c", 5], ["d", 2]]);
-  assert.deepEqual(topTags(counts, "a", 3), [["b", 5], ["c", 5], ["d", 2], ["a", 1]]);
-  assert.deepEqual(topTags(counts, "gone", 3).at(-1), ["gone", 0]);
+  const list = [mail("a", { to: to("test+01") }), mail("b", { to: to("test+01", "test+02") }), mail("c", { to: to("test") })];
+  assert.deepEqual(ids(run(list, { q: "to:test+01" })), ["a", "b"]);
+  assert.deepEqual(ids(run(list, { q: "to:test+02" })), ["b"]);
 });
 
 test("sender dropdown lists each sender once with a count, and filters by address", () => {
@@ -178,9 +152,9 @@ test("the default state is the bare list hash", () => {
 });
 
 test("hash round-trips every field", () => {
-  const state = { q: 'from:"john smith" invoice & more=1', sort: { key: "size", dir: "desc" }, unread: true, att: true, range: "today", tag: "01", from: "a@x.com" };
+  const state = { q: 'from:"john smith" invoice & more=1', sort: { key: "size", dir: "desc" }, unread: true, att: true, range: "today", from: "a@x.com" };
   const hash = formatHash(state);
-  assert.match(hash, /^#\/\?q=.+&sort=size\.desc&tag=01&range=today&unread=1&att=1&from=a%40x\.com$/);
+  assert.match(hash, /^#\/\?q=.+&sort=size\.desc&range=today&unread=1&att=1&from=a%40x\.com$/);
   assert.deepEqual(parseHash(hash), state);
   assert.equal(formatHash(parseHash(hash)), hash);
 });
@@ -199,27 +173,41 @@ test("a hash without sort uses the stored fallback sort", () => {
 test("parseHash survives hostile and malformed input", () => {
   const hostile = [
     "#/?q=%E0%A4%A", "#/?sort=__proto__&range=%00&tag=<script>alert(1)</script>&from=%0d%0a",
-    `#/?q=${"a".repeat(5000)}`, "#/?unread=yes&att=2", "#/?%%%", "#/?range=7d&range=1h", "#/?tag=A+B", "#/?tag=" + "x".repeat(31),
+    `#/?q=${"a".repeat(5000)}`, "#/?unread=yes&att=2", "#/?%%%", "#/?range=7d&range=1h",
   ];
   for (const hash of hostile) {
     const state = parseHash(hash);
     assert.ok(state.q.length <= 200, hash);
-    assert.match(state.tag, /^[a-z0-9._-]{0,30}$/, hash);
     assert.ok(["", "1h", "today", "7d"].includes(state.range), hash);
-    assert.deepEqual(Object.keys(state).sort(), ["att", "from", "q", "range", "sort", "tag", "unread"]);
+    assert.deepEqual(Object.keys(state).sort(), ["att", "from", "q", "range", "sort", "unread"]);
     assert.equal(typeof state.unread, "boolean");
     assert.doesNotMatch(state.from, /[\u0000-\u001f]/);
   }
   assert.equal(parseHash("#/?range=7d&range=1h").range, "7d");
   assert.deepEqual(parseHash("#/?sort=__proto__").sort, DEFAULT_SORT);
-  assert.equal(parseHash("#/?tag=<script>alert(1)</script>").tag, "");
+  assert.deepEqual(parseHash("#/?tag=01&unread=1"), { ...defaultState(), unread: true });
+  assert.equal(formatHash(parseHash("#/?tag=01")), "#/");
   assert.equal(parseHash("#/?unread=yes&att=2").unread, false);
 });
 
 test("hasFilters and clearFilters leave the sort alone", () => {
   const sort = { key: "size", dir: "asc" };
   assert.equal(hasFilters({ ...defaultState(sort), q: "  " }), false);
-  const busy = { ...defaultState(sort), tag: "01", q: "x" };
+  const busy = { ...defaultState(sort), from: "a@x.com", q: "x" };
   assert.equal(hasFilters(busy), true);
   assert.deepEqual(clearFilters(busy), defaultState(sort));
+});
+
+test("addresses list each base followed by its tags, in natural order", () => {
+  const input = ["test2+01", "test+10", "test", "test2", "test+2", "test+01", "alpha", "test+1", "test10", "test9"];
+  assert.deepEqual(orderAccounts(input), ["alpha", "test", "test+01", "test+1", "test+2", "test+10", "test2", "test2+01", "test9", "test10"]);
+  assert.deepEqual(orderAccounts(["test+01", "test"]), ["test", "test+01"]);
+  assert.deepEqual(orderAccounts(["b+1", "a+2", "a"]), ["a", "a+2", "b+1"]);
+});
+
+test("orderAccounts does not mutate its input and handles an empty list", () => {
+  const input = ["b", "a"];
+  assert.deepEqual(orderAccounts(input), ["a", "b"]);
+  assert.deepEqual(input, ["b", "a"]);
+  assert.deepEqual(orderAccounts([]), []);
 });

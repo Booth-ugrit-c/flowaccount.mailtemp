@@ -9,10 +9,11 @@ All notable changes to this project are documented here. The format follows [Kee
 - The inbox page opens first on every visit. With no address a dim overlay spotlights "Add address"; the button opens a centred modal (focus trap, Enter submits, Esc and backdrop close it only when an address exists).
 - Inbox list sort and filter, all in the browser:
   - Sortable headers From, Subject, Size and Received (arrow shows the direction; default Received, newest first; the choice is remembered per browser; a "Sort by" menu replaces the headers on narrow screens).
-  - Chips: Unread, Has attachment, 1h / Today / 7d, one chip per `+tag` of the current address with its count, and a Sender menu.
+  - Chips: Unread, Has attachment, 1h / Today / 7d and a Sender menu. A `+tag` is its own address; `to:+tag` in the search narrows to one.
   - Search operators `from:` `to:` `subject:` `has:attachment` `is:unread` with quoted values, combined with free text and the chips; an unknown `x:` is plain text.
-  - The state is in the URL hash (`#/?q=...&sort=size.desc&tag=01&range=today&unread=1&att=1&from=...`), so a link reproduces the view and Back from a message keeps it.
+  - The state is in the URL hash (`#/?q=...&sort=size.desc&range=today&unread=1&att=1&from=...`), so a link reproduces the view and Back from a message keeps it.
   - The count reads `x of y`, a Clear button resets the filters, and a note appears when the loaded list may be capped.
+- The "Addresses in this browser" list is shown with each base followed by its `+tag` addresses (`test`, `test+01`, `test+02`, `test2`, `test2+01`), natural order (`+2` before `+10`). Only the display is sorted; storage is unchanged and no tag entries are created.
 - `GET /api/messages` also returns `truncated` (a candidate list reached the 200 cap); `GET /listview.js` serves the parse, filter and sort module that the page and the unit tests share.
 - Inbox unit tests (`inbox/test/names.test.mjs`, `listview.test.mjs`, `mail-list.test.mjs`) run in CI.
 - Down alert: the capture Worker's 5-minute cron probes `/api/status` and posts to a Discord webhook (`ALERT_WEBHOOK_URL` secret): DOWN after 2 consecutive failed probes, a reminder at most every 2 hours, and RECOVERED with the downtime and the KV-buffered mail count. State lives in a new `MONITOR_STATE` KV namespace. See the README section "Down alert".
