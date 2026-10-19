@@ -2,6 +2,8 @@
 
 Work symptom → check → fix. Run commands from the repo root on the host unless the step says otherwise. Cloudflare checks need the API token from `runbook-setup.md` C1 in `$CF_TOKEN`, plus `<ACCOUNT_ID>` and `<ZONE_ID>`.
 
+> The cloud deployment's code (`worker/`, `status-worker/`, `cloud/`) moved to `ugritchaichana/booth-mailtemp`; run the `wrangler` and `worker/` commands below from a clone of that repo (or of this one at tag `v1.0.0` for the self-host Email Worker).
+
 **Cloud mode (current).** `capture-worker` ingests mail straight into `mailtemp-cloud` (D1); the laptop stack, tunnel and bridge are not in the path, and sections 1, 2 and 7-8 apply only if the laptop stack is running. Mail path problems are now: `npx wrangler tail capture-worker` (look for `CAPTURE_DELIVERED`, `CAPTURE_FALLBACK`, `CAPTURE_ERROR`), `curl -s https://mail.booth.pp.ua/api/status` (`d1` must be `ok`), and the buffer: a DOWN alert "mail is not reaching the cloud" means entries sit in `CAPTURE_FALLBACK` for over 10 minutes; once `mailtemp-cloud` answers again the 5-minute cron re-ingests them (15 per run).
 
 **Rule zero: mail is not lost during an outage.**
