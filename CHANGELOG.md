@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Removed
+- `cloud/`, `worker/`, `status-worker/`, `tools/backfill-snippets.mjs`, `tools/migrate-mailpit-to-cloud.mjs` and `tools/cloud-import-worker/` moved to [`ugritchaichana/booth-mailtemp`](https://github.com/ugritchaichana/booth-mailtemp), together with their tests and CI steps. The self-host Email Worker is still at tag `v1.0.0`.
+
 ### Fixed
 - Admin sign-in: every `GET /api/admin/auth/callback` outcome is now a 302 to `/admin`, with `?signin=expired|cancelled|github|denied` on failure; `admin.html` shows an alert in the sign-in card and removes the query. A failed token exchange or `/user` call logs one `admin_login` line with `ok:false`, `stage` (`token`|`user`), `status` and GitHub's `error` code when it is a short lowercase code, never the code, state, token, secret or a response body. The bare HTML error pages are gone.
 

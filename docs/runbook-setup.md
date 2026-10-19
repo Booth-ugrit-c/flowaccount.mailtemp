@@ -92,6 +92,8 @@ Expected: `{"enabled": true, "status": "ready", "support_subaddress": true}`. Cl
 Gotcha: do **not** send a body like `{"name":"<DOMAIN>"}` to `/email/routing/dns` for the apex. It fails with `2007: Invalid Input: must be a subdomains of <DOMAIN>`, because `name` is only for subdomains.
 
 ### C3. Capture Worker (`worker/`)
+> `worker/` is no longer in this branch: use tag `v1.0.0` for the self-host Email Worker, or `ugritchaichana/booth-mailtemp` for the cloud-mode one.
+
 1. Create the KV namespace and put its id into `worker/wrangler.toml` under `[[kv_namespaces]]`:
    ```bash
    cd worker && npm ci
@@ -147,6 +149,8 @@ docker compose logs cloudflared | grep -c 'Registered tunnel connection'    # 4
 ```
 
 ### C6. Status Worker (`status-worker/`)
+> `status-worker/` moved to `ugritchaichana/booth-mailtemp` (and is at tag `v1.0.0`).
+
 Cloud mode: it answers every path on `mailpit.<DOMAIN>` with a short "we moved" page that redirects to the cloud inbox after 10 seconds (200 on every HTML path, JSON 410 for API requests) and never calls the origin. Before cloud mode it showed a "service is down, mail is queued" page when the host or tunnel was down (ADR-016). The single route is `mailpit.<DOMAIN>/*`.
 ```bash
 cd status-worker && npx --yes wrangler@4 deploy     # routes come from status-worker/wrangler.toml; edit the host there first (no lockfile, so no npm ci)

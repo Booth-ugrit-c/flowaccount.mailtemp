@@ -1,9 +1,0 @@
-name = "mailpit-status-fallback"
-main = "src/index.js"
-compatibility_date = "2026-10-01"
-workers_dev = false
-send_metrics = false
-
-routes = [
-  { pattern = "mailpit.booth.pp.ua/*", zone_name = "booth.pp.ua" },
-]

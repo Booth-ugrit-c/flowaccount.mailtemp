@@ -326,7 +326,7 @@ The project receives real internet mail for a test domain and shows it in a web 
   - Mailpit down: "Inbox service is down. Your mail is safe and will appear when it is back."
   - bridge down: "New mail is delayed. It is queued and will arrive when the service recovers."
   - browser lost the app: "Lost connection to the mail service. Retrying…"
-- When the host or tunnel is down the page cannot load at all. A small edge Worker (`status-worker/`) runs **only** on routes `<host>/` and `<host>/index.html`, so API polling never uses Worker quota. It passes the origin through, and serves a self-contained "service is down, mail is queued" page when the origin throws or returns 502–504 or 520–530.
+- When the host or tunnel is down the page cannot load at all. A small edge Worker (`status-worker/`, since moved to `ugritchaichana/booth-mailtemp`) runs **only** on routes `<host>/` and `<host>/index.html`, so API polling never uses Worker quota. It passes the origin through, and serves a self-contained "service is down, mail is queued" page when the origin throws or returns 502–504 or 520–530.
 
 **Consequences.**
 - (+) **Measured:** with a tunnel that has no connector, the origin answers `530`, and the Worker on `/` serves its fallback: `HTTP 503`, `<title>Mailpit - system is down</title>`. Measured on a temporary test host, since removed.
