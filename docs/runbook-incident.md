@@ -2,8 +2,10 @@
 
 Work symptom → check → fix. Run commands from the repo root on the host unless the step says otherwise. Cloudflare checks need the API token from `runbook-setup.md` C1 in `$CF_TOKEN`, plus `<ACCOUNT_ID>` and `<ZONE_ID>`.
 
-**Rule zero: mail is not lost during a host-side outage.**
-- If the bridge, tunnel or host is down, the Worker stores each mail in KV (7-day TTL, up to 1,000 writes/day on Workers Free).
+**Cloud mode (current).** `capture-worker` ingests mail straight into `mailtemp-cloud` (D1); the laptop stack, tunnel and bridge are not in the path, and sections 1, 2 and 7-8 apply only if the laptop stack is running. Mail path problems are now: `npx wrangler tail capture-worker` (look for `CAPTURE_DELIVERED`, `CAPTURE_FALLBACK`, `CAPTURE_ERROR`), `curl -s https://mail.booth.pp.ua/api/status` (`d1` must be `ok`), and the buffer: a DOWN alert "mail is not reaching the cloud" means entries sit in `CAPTURE_FALLBACK` for over 10 minutes; once `mailtemp-cloud` answers again the 5-minute cron re-ingests them (15 per run).
+
+**Rule zero: mail is not lost during an outage.**
+- If the cloud ingest fails (or, in laptop mode, the bridge, tunnel or host is down), the Worker stores each mail in KV (7-day TTL, up to 1,000 writes/day on Workers Free).
 - A cron replays 15 messages every 5 minutes once the bridge answers again.
 - Senders see a normal acceptance, not a bounce.
 - Do **not** disable Email Routing or the catch-all to "stop" mail. Unmatched addresses would then be rejected, and that **is** a bounce.
@@ -165,7 +167,7 @@ Never run `docker compose down -v` on the live host: `-v` deletes all mail and t
 
 | What | Command |
 |---|---|
-| Capture Worker | `cd worker && npx wrangler versions list` then `npx wrangler rollback <version-id>` |
+| Capture Worker | `cd worker && npx wrangler versions list` then `npx wrangler rollback <version-id> --name capture-worker`. The last bridge version is `1c6472bc-8b4b-4c46-99e5-b90ead2f575f`; after rolling back to it, start the laptop stack. |
 | Status Worker | `cd status-worker && npx wrangler rollback <version-id>`, or delete its routes to disable it |
 | Host services | `git checkout <previous-tag-or-commit> && docker compose --profile tunnel up -d --build` |
 | Tunnel ingress | `PUT /accounts/<ACCOUNT_ID>/cfd_tunnel/<TUNNEL_ID>/configurations` with the previous ingress (`runbook-setup.md` C5) |
