@@ -147,13 +147,13 @@ docker compose logs cloudflared | grep -c 'Registered tunnel connection'    # 4
 ```
 
 ### C6. Status Worker (`status-worker/`)
-Cloud mode: it answers every path on `mailpit.<DOMAIN>` with a "we moved" notice (200 on `/` and `/index.html`, 410 elsewhere and JSON 410 for API requests) and never calls the origin. Before cloud mode it showed a "service is down, mail is queued" page when the host or tunnel was down (ADR-016). The single route is `mailpit.<DOMAIN>/*`.
+Cloud mode: it answers every path on `mailpit.<DOMAIN>` with a short "we moved" page that redirects to the cloud inbox after 5 seconds (200 on every HTML path, JSON 410 for API requests) and never calls the origin. Before cloud mode it showed a "service is down, mail is queued" page when the host or tunnel was down (ADR-016). The single route is `mailpit.<DOMAIN>/*`.
 ```bash
 cd status-worker && npx --yes wrangler@4 deploy     # routes come from status-worker/wrangler.toml; edit the host there first (no lockfile, so no npm ci)
 ```
 Expected deploy output: `Deployed mailpit-status-fallback triggers` followed by your route.
 
-Verify: `curl -sI https://mailpit.<DOMAIN>/` must answer `200`, and `/admin/` and `/api/status` must answer `410`, with the tunnel up or down.
+Verify: `curl -sI https://mailpit.<DOMAIN>/` must answer `200` (as must `/admin/`), and `/api/status` must answer `410`, with the tunnel up or down.
 
 ## A. CI access (live smoke)
 
