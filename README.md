@@ -11,7 +11,7 @@ Version `1.0.0`. Release notes: [CHANGELOG.md](CHANGELOG.md).
 | `inbox/` | Node 22 web app: create-or-open an address, switch addresses, read mail |
 | `cloud/` | Cloudflare-only version: one Worker with D1 and static assets, no machine to run (see "Cloud version") |
 | `e2e-helper/` | Playwright helper for reading captured mail in tests |
-| `status-worker/` | Cloudflare Worker that redirects `mailpit.booth.pp.ua/` to `https://mail.booth.pp.ua/` (not deployed by the repo) |
+| `status-worker/` | Cloudflare Worker that answers every path on `mailpit.booth.pp.ua` with a short "we moved" page that redirects to `https://mail.booth.pp.ua/` (not deployed by the repo) |
 | `tools/` | Local test scripts and the live Cloudflare scripts (`tools/live/`) |
 
 ## Quickstart
@@ -60,7 +60,7 @@ Mail path: Email Routing (`qa@` rule and catch-all, unchanged) -> `capture-worke
 - If `ingest` throws or times out (15 s), the mail is stored in KV (`CAPTURE_FALLBACK`, 7-day TTL) and the 5-minute cron re-ingests 15 entries per run, deleting each only after it succeeds. `ingest` is idempotent on the message id, so a replay never doubles a mail. If the KV write also fails, the Worker rejects the mail (`LAST_RESORT = "rethrow"`), as before.
 - The bridge is no longer in the path and `BRIDGE_URL` is gone from `worker/wrangler.toml`. `HMAC_KEY` is no longer read.
 - The down alert watches `https://mail.booth.pp.ua/api/status` and the age of the oldest buffered mail (see "Down alert").
-- `mailpit.booth.pp.ua/` and `/index.html` redirect to the cloud inbox (`status-worker/`). Other paths on that host (for example `/admin/`) still go to the laptop tunnel and fail while it is off.
+- Every path on `mailpit.booth.pp.ua` is answered by `status-worker/` with a "we moved" notice (HTTP 200 on every HTML path, redirecting to the new root after 5 seconds; JSON 410 for API requests); the laptop tunnel is no longer reached.
 - `live-smoke` runs only on manual dispatch; it needs the laptop Mailpit.
 - The laptop stack (`docker compose`, the tunnel, the watchdog task) is optional. Keep its volumes if old mail may be imported later.
 - Rollback: `cd worker && npx wrangler rollback 1c6472bc-8b4b-4c46-99e5-b90ead2f575f --name capture-worker` (the last bridge version; set the version id from `npx wrangler versions list` if it has changed), then start the laptop stack again. `cd status-worker && npx wrangler rollback <version-id>` restores the old fallback page.
@@ -106,11 +106,13 @@ Messages never contain mail addresses or content. The monitor runs beside the re
 - Turn off: `npx wrangler secret delete ALERT_WEBHOOK_URL`.
 - Tests (no dependencies): `node --test "worker/test/*.test.js"`; CI runs them in the `build` job.
 
-### Redirect (`status-worker/`)
+### Moved notice (`status-worker/`)
 
-`status-worker/` is a small Cloudflare Worker on exactly two routes, `mailpit.booth.pp.ua/` and `mailpit.booth.pp.ua/index.html`. It answers every request it receives with `302` to `https://mail.booth.pp.ua/` and never calls the origin, so the old host keeps working after the laptop stack is off. Deep paths on `mailpit.booth.pp.ua` (for example `/admin/`) are not routed to it and fail while the tunnel has no connector; a wildcard route or a permanent `301` is a follow-up.
+`status-worker/` is a small Cloudflare Worker on the single route `mailpit.booth.pp.ua/*`. It never calls the origin, so the old host keeps answering after the laptop stack is off.
 
-- Do not route `/api/*` or a wildcard: the status polling would count against the Workers request quota.
+- Every HTML path, deep paths included: `200` and one self-contained Thai page (inline CSS, light and dark, `noindex`) with a progress bar and a "ไปเลย" button. After 5 seconds it redirects to `https://mail.booth.pp.ua/` (`location.replace`, with `<meta http-equiv="refresh">` as the no-JavaScript fallback; the bar is static under `prefers-reduced-motion`).
+- Paths under `/api/` or `/admin/api/`, or `Accept: application/json`: `410` with `{"error":"moved","to":"https://mail.booth.pp.ua/"}`.
+
 - Deploy with `cd status-worker && npx wrangler deploy` using your own Cloudflare account. The repo never deploys it.
 - Tests (no dependencies): `node --test "status-worker/test/*.test.js"`; CI runs them in the `build` job.
 - Outage test for the banners: `bash inbox/test/outage.sh` stops and starts services of an isolated compose project (`outagecheck`, ports 38025/38080/38090); it never touches the running stack.
