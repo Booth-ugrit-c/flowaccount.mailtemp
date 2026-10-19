@@ -60,7 +60,7 @@ Mail path: Email Routing (`qa@` rule and catch-all, unchanged) -> `capture-worke
 - If `ingest` throws or times out (15 s), the mail is stored in KV (`CAPTURE_FALLBACK`, 7-day TTL) and the 5-minute cron re-ingests 15 entries per run, deleting each only after it succeeds. `ingest` is idempotent on the message id, so a replay never doubles a mail. If the KV write also fails, the Worker rejects the mail (`LAST_RESORT = "rethrow"`), as before.
 - The bridge is no longer in the path and `BRIDGE_URL` is gone from `worker/wrangler.toml`. `HMAC_KEY` is no longer read.
 - The down alert watches `https://mail.booth.pp.ua/api/status` and the age of the oldest buffered mail (see "Down alert").
-- Every path on `mailpit.booth.pp.ua` is answered by `status-worker/` with a "we moved" notice (HTTP 200 on every HTML path, redirecting to the new root after 5 seconds; JSON 410 for API requests); the laptop tunnel is no longer reached.
+- Every path on `mailpit.booth.pp.ua` is answered by `status-worker/` with a "we moved" notice (HTTP 200 on every HTML path, redirecting to the new root after 10 seconds; JSON 410 for API requests); the laptop tunnel is no longer reached.
 - `live-smoke` runs only on manual dispatch; it needs the laptop Mailpit.
 - The laptop stack (`docker compose`, the tunnel, the watchdog task) is optional. Keep its volumes if old mail may be imported later.
 - Rollback: `cd worker && npx wrangler rollback 1c6472bc-8b4b-4c46-99e5-b90ead2f575f --name capture-worker` (the last bridge version; set the version id from `npx wrangler versions list` if it has changed), then start the laptop stack again. `cd status-worker && npx wrangler rollback <version-id>` restores the old fallback page.
@@ -110,7 +110,7 @@ Messages never contain mail addresses or content. The monitor runs beside the re
 
 `status-worker/` is a small Cloudflare Worker on the single route `mailpit.booth.pp.ua/*`. It never calls the origin, so the old host keeps answering after the laptop stack is off.
 
-- Every HTML path, deep paths included: `200` and one self-contained Thai page (inline CSS, light and dark, `noindex`) with a progress bar and a "ไปเลย" button. After 5 seconds it redirects to `https://mail.booth.pp.ua/` (`location.replace`, with `<meta http-equiv="refresh">` as the no-JavaScript fallback; the bar is static under `prefers-reduced-motion`).
+- Every HTML path, deep paths included: `200` and one self-contained English page (inline CSS, light and dark, `noindex`) with a progress bar and a "Go now" button. After 10 seconds it redirects to `https://mail.booth.pp.ua/` (`location.replace`, with `<meta http-equiv="refresh">` as the no-JavaScript fallback; the bar is static under `prefers-reduced-motion`).
 - Paths under `/api/` or `/admin/api/`, or `Accept: application/json`: `410` with `{"error":"moved","to":"https://mail.booth.pp.ua/"}`.
 
 - Deploy with `cd status-worker && npx wrangler deploy` using your own Cloudflare account. The repo never deploys it.
