@@ -110,7 +110,7 @@ Messages never contain mail addresses or content. The monitor runs beside the re
 
 `status-worker/` is a small Cloudflare Worker on the single route `mailpit.booth.pp.ua/*`. It never calls the origin, so the old host keeps answering after the laptop stack is off.
 
-- Every HTML path, deep paths included: `200` and one self-contained English page (inline CSS, light and dark, `noindex`) with a progress bar and a "Go now" button. After 10 seconds it redirects to `https://mail.booth.pp.ua/` (`location.replace`, with `<meta http-equiv="refresh">` as the no-JavaScript fallback; the bar is static under `prefers-reduced-motion`).
+- Every HTML path, deep paths included: `200` and one self-contained English page (inline CSS, light and dark, `noindex`) with a progress bar and a "Go now" button. After 10 seconds it redirects to `https://mail.booth.pp.ua/` (`location.replace`, with `<meta http-equiv="refresh">` as the no-JavaScript fallback; a script counts 10 to 1 and widens the bar each second, with a glide that `prefers-reduced-motion` turns into a one-second step).
 - Paths under `/api/` or `/admin/api/`, or `Accept: application/json`: `410` with `{"error":"moved","to":"https://mail.booth.pp.ua/"}`.
 
 - Deploy with `cd status-worker && npx wrangler deploy` using your own Cloudflare account. The repo never deploys it.
