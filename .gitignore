@@ -10,5 +10,3 @@ tools/live/mails/*.bin
 node_modules/
 .wrangler/
 e2e-helper/test-results/
-worker/dist/
-cloud/dist/
