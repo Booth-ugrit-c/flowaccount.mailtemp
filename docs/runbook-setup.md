@@ -97,7 +97,7 @@ Gotcha: do **not** send a body like `{"name":"<DOMAIN>"}` to `/email/routing/dns
    cd worker && npm ci
    npx wrangler kv namespace create CAPTURE_FALLBACK      # prints the id
    ```
-2. In `worker/wrangler.toml`, set `BRIDGE_URL = "https://bridge.<DOMAIN>/ingest"`. Keep `LAST_RESORT = "rethrow"`, `workers_dev = false` and the cron `*/5 * * * *`.
+2. Cloud mode: no `BRIDGE_URL`. The Worker needs the `CLOUD` Service Binding to `mailtemp-cloud` (already in `worker/wrangler.toml`; deploy `cloud/` first). Keep `LAST_RESORT = "rethrow"`, `workers_dev = false` and the cron `*/5 * * * *`. Laptop mode needs the version of this Worker before cloud mode (`1c6472bc-8b4b-4c46-99e5-b90ead2f575f`), with `BRIDGE_URL = "https://bridge.<DOMAIN>/ingest"` and the `HMAC_KEY` step below.
 3. Set the shared secret to **exactly** the `HMAC_KEY` value from `.env`, then deploy:
    ```bash
    npx wrangler secret put HMAC_KEY        # paste the value from .env
@@ -105,7 +105,7 @@ Gotcha: do **not** send a body like `{"name":"<DOMAIN>"}` to `/email/routing/dns
    ```
 4. Verify:
    ```bash
-   npx wrangler deploy --dry-run --outdir /tmp/w | grep -E 'BRIDGE_URL|LAST_RESORT'
+   npx wrangler deploy --dry-run --outdir /tmp/w | grep -E 'CLOUD|LAST_RESORT'
    npx wrangler secret list 2>/dev/null | jq -r '.[].name'      # HMAC_KEY
    ```
    The deploy output must show `schedule: */5 * * * *`.
@@ -147,13 +147,13 @@ docker compose logs cloudflared | grep -c 'Registered tunnel connection'    # 4
 ```
 
 ### C6. Status Worker (`status-worker/`)
-It shows a "service is down, mail is queued" page when the host or tunnel is down (ADR-016). Deploy it with routes **only** on `mailpit.<DOMAIN>/` and `mailpit.<DOMAIN>/index.html`. Do not add `/*`: page polling would then use up the Workers Free request quota.
+Cloud mode: it redirects `mailpit.<DOMAIN>/` and `/index.html` to the cloud inbox (302). Before cloud mode it showed a "service is down, mail is queued" page when the host or tunnel was down (ADR-016). Deploy it with routes **only** on `mailpit.<DOMAIN>/` and `mailpit.<DOMAIN>/index.html`. Do not add `/*`: page polling would then use up the Workers Free request quota.
 ```bash
 cd status-worker && npx --yes wrangler@4 deploy     # routes come from status-worker/wrangler.toml; edit the host there first (no lockfile, so no npm ci)
 ```
 Expected deploy output: `Deployed mailpit-status-fallback triggers` followed by your two routes.
 
-Verify: stop the tunnel (`docker compose stop cloudflared`) and open `https://mailpit.<DOMAIN>/`. The fallback page must show (`HTTP 503`, title `Mailpit - system is down`). Measured: with no connector, the origin answers `530`. `/api/status` returns the raw `530` by design. Then start it again (`docker compose --profile tunnel up -d`); the page reloads into the app within about 15 s.
+Verify: `curl -sI https://mailpit.<DOMAIN>/` must answer `302` with `Location: https://mail.<DOMAIN>/`, with the tunnel up or down. Other paths such as `/admin/` are not routed to this Worker.
 
 ## A. CI access (live smoke)
 
@@ -162,7 +162,7 @@ CI reads captured mail with its own Mailpit user `ci`, not `root`.
 1. On a new host, `bash setup.sh` already created the `ci` user and `secrets/ci.env`. On an existing host, `bash setup.sh` appends the `ci:` line to `secrets/ui_auth`, prints the password once and creates `secrets/ci.env`. Mailpit reads `secrets/ui_auth` only at start (measured: the new user got 401 for 23 s and 200 right after a restart), so run `docker compose restart mailpit` (a few seconds; the Worker queues mail meanwhile).
 2. Check: `curl -s -o /dev/null -w '%{http_code}' --doh-url https://cloudflare-dns.com/dns-query -u "ci:<password>" https://mailpit.<DOMAIN>/admin/api/v1/info` gives `200`, and the same with a wrong password gives `401`.
 3. In the GitHub repository settings add the Actions secrets `MAILPIT_CI_USER` (value `ci`) and `MAILPIT_CI_PASSWORD` (the value in `secrets/ci.env`).
-4. Run the `live-smoke` workflow once from the Actions tab. It is not a required check: it depends on this host being up, and it skips with a notice while the secrets are missing.
+4. Run the `live-smoke` workflow once from the Actions tab (it runs only on manual dispatch). It is not a required check: it depends on this host being up, and it skips with a notice while the secrets are missing.
 
 ## V. Verification checklist
 

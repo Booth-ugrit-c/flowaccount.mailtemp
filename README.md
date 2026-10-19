@@ -1,17 +1,17 @@
 # Mailpit inbound capture
 
-Receives real internet mail for a domain and gives every visitor a private inbox on a Mailpit-styled web page. Mail goes Cloudflare Email Routing -> Worker -> tunnel -> `bridge` -> Mailpit. The `inbox` app shows each visitor only mail addressed to their own address; the real Mailpit UI is admin-only at `/admin/`.
+Receives real internet mail for a domain and gives every visitor a private inbox on a Mailpit-styled web page. In cloud mode (see "Cloud mode") mail goes Cloudflare Email Routing -> `capture-worker` -> `mailtemp-cloud` (D1) and the inbox is `https://mail.booth.pp.ua/`; the laptop stack (Email Routing -> Worker -> tunnel -> `bridge` -> Mailpit) is optional. The `inbox` app shows each visitor only mail addressed to their own address; the real Mailpit UI is admin-only at `/admin/`.
 
 Version `1.0.0`. Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 | Folder | What it is |
 |---|---|
-| `worker/` | Cloudflare Email Worker that signs and forwards each mail to the bridge |
+| `worker/` | Cloudflare Email Worker (`capture-worker`): ingests each mail into `cloud/` through a Service Binding, buffers failures in KV, runs the down alert |
 | `bridge/` | Node 22 service: verifies the signature, relays the mail to Mailpit over SMTP |
 | `inbox/` | Node 22 web app: create-or-open an address, switch addresses, read mail |
 | `cloud/` | Cloudflare-only version: one Worker with D1 and static assets, no machine to run (see "Cloud version") |
 | `e2e-helper/` | Playwright helper for reading captured mail in tests |
-| `status-worker/` | Optional Cloudflare Worker that shows a "system is down" page when the origin is unreachable (not deployed by the repo) |
+| `status-worker/` | Cloudflare Worker that redirects `mailpit.booth.pp.ua/` to `https://mail.booth.pp.ua/` (not deployed by the repo) |
 | `tools/` | Local test scripts and the live Cloudflare scripts (`tools/live/`) |
 
 ## Quickstart
@@ -53,6 +53,18 @@ docker compose --profile tunnel up -d
 
 Mailpit options used: `MP_MAX_MESSAGE_SIZE=30` (MB), `MP_MAX_MESSAGES=0` (no count cap; the default would keep only 500), `MP_DATABASE=/data/mailpit.db`, `MP_UI_AUTH_FILE=/run/secrets/ui_auth`, `MP_WEBROOT=admin`. There is no age expiry: the `janitor` service frees space by quota.
 
+## Cloud mode
+
+Mail path: Email Routing (`qa@` rule and catch-all, unchanged) -> `capture-worker` -> `env.CLOUD.ingest(raw, { from, to })` on the `mailtemp-cloud` Service Binding -> D1. The inbox is `https://mail.booth.pp.ua/`. No machine has to run.
+
+- If `ingest` throws or times out (15 s), the mail is stored in KV (`CAPTURE_FALLBACK`, 7-day TTL) and the 5-minute cron re-ingests 15 entries per run, deleting each only after it succeeds. `ingest` is idempotent on the message id, so a replay never doubles a mail. If the KV write also fails, the Worker rejects the mail (`LAST_RESORT = "rethrow"`), as before.
+- The bridge is no longer in the path and `BRIDGE_URL` is gone from `worker/wrangler.toml`. `HMAC_KEY` is no longer read.
+- The down alert watches `https://mail.booth.pp.ua/api/status` and the age of the oldest buffered mail (see "Down alert").
+- `mailpit.booth.pp.ua/` and `/index.html` redirect to the cloud inbox (`status-worker/`). Other paths on that host (for example `/admin/`) still go to the laptop tunnel and fail while it is off.
+- `live-smoke` runs only on manual dispatch; it needs the laptop Mailpit.
+- The laptop stack (`docker compose`, the tunnel, the watchdog task) is optional. Keep its volumes if old mail may be imported later.
+- Rollback: `cd worker && npx wrangler rollback 1c6472bc-8b4b-4c46-99e5-b90ead2f575f --name capture-worker` (the last bridge version; set the version id from `npx wrangler versions list` if it has changed), then start the laptop stack again. `cd status-worker && npx wrangler rollback <version-id>` restores the old fallback page.
+
 ## Cloud version (`cloud/`)
 
 One Worker (`mailtemp-cloud`) serves the inbox UI and API from Workers Static Assets and keeps mail in D1: an index row, one row per recipient, and the raw message as base64 text chunks of 1,440,000 bytes (a D1 row holds at most 2,000,000). Mail reaches it through an RPC method, never a public route: `env.CLOUD.ingest(raw, { from, to })` on a Service Binding. The message view is parsed in the browser from `/api/messages/:id/raw` with a vendored copy of postal-mime (`cloud/public/vendor/postal-mime.js`, MIT-0, version 4.0.7, bundled from the npm package).
@@ -79,7 +91,7 @@ Detection takes up to about 10 s (5 s cache plus the 5 s poll).
 
 ### Down alert (`worker/`)
 
-Every 5-minute cron run of the capture Worker probes `STATUS_URL` (default `https://mailpit.booth.pp.ua/api/status`, 8 s timeout). Healthy means HTTP 200 with `mailpit` and `bridge` both `"ok"`; anything else is a failed probe. It posts to a Discord webhook:
+Every 5-minute cron run of the capture Worker probes `STATUS_URL` (`https://mail.booth.pp.ua/api/status`, 8 s timeout) and looks at the oldest mail in `CAPTURE_FALLBACK`. A run is healthy when the probe answers HTTP 200 and every status field in the JSON (a lowercase word such as `"ok"`, `"down"`, `"error"`; timestamps and numbers are ignored) is `"ok"`, with at least one such field, and no buffered mail is older than 10 minutes (age is derived from the KV expiration). Anything else is a failed run, and the reason names the failing fields and, for mail that is not reaching the cloud, the buffered count and the oldest age. It posts to a Discord webhook:
 
 - DOWN once, after 2 consecutive failed probes, with the reason (status code or the component that is not ok);
 - a "still DOWN" reminder at most every 2 hours;
@@ -93,11 +105,11 @@ Messages never contain mail addresses or content. The monitor runs beside the re
 - Turn off: `npx wrangler secret delete ALERT_WEBHOOK_URL`.
 - Tests (no dependencies): `node --test "worker/test/*.test.js"`; CI runs them in the `build` job.
 
-### Edge fallback (`status-worker/`)
+### Redirect (`status-worker/`)
 
-If the PC, the tunnel or the app is down, the browser cannot load the page at all, so no in-page banner is possible. `status-worker/` is a small Cloudflare Worker that sits in front of the page: it fetches the origin, and when that throws or answers 502/503/504/520-530 (a tunnel without a connector answers 530) it serves a self-contained "System is down, mail is queued" page (HTTP 503, inline CSS, no external assets) that retries every 15 s and reloads when the service is back. Everything else passes through untouched.
+`status-worker/` is a small Cloudflare Worker on exactly two routes, `mailpit.booth.pp.ua/` and `mailpit.booth.pp.ua/index.html`. It answers every request it receives with `302` to `https://mail.booth.pp.ua/` and never calls the origin, so the old host keeps working after the laptop stack is off. Deep paths on `mailpit.booth.pp.ua` (for example `/admin/`) are not routed to it and fail while the tunnel has no connector; a wildcard route or a permanent `301` is a follow-up.
 
-- Deploy it on exactly two routes, `<host>/` and `<host>/index.html` (already set in `status-worker/wrangler.toml`; change the host and `zone_name` for your domain). Do not route `/api/*` or a wildcard: the status polling would count against the Workers request quota.
+- Do not route `/api/*` or a wildcard: the status polling would count against the Workers request quota.
 - Deploy with `cd status-worker && npx wrangler deploy` using your own Cloudflare account. The repo never deploys it.
 - Tests (no dependencies): `node --test "status-worker/test/*.test.js"`; CI runs them in the `build` job.
 - Outage test for the banners: `bash inbox/test/outage.sh` stops and starts services of an isolated compose project (`outagecheck`, ports 38025/38080/38090); it never touches the running stack.
@@ -106,7 +118,7 @@ If the PC, the tunnel or the app is down, the browser cannot load the page at al
 
 E2E tests address `qa+<test-id>@<domain>`, which the public inbox cannot read (reserved names), so CI reads captured mail through the Mailpit API at `/admin/api/v1` with its own user `ci`. `setup.sh` adds the `ci:<random>` line to `secrets/ui_auth` and writes `secrets/ci.env`; Mailpit reads the auth file only at start, so run `docker compose restart mailpit` once after the line is added to an existing host.
 
-Upload the two values from `secrets/ci.env` as the repository secrets `MAILPIT_CI_USER` and `MAILPIT_CI_PASSWORD`. The `live-smoke` workflow (manual or on push to `main`) then runs `e2e-helper/live-smoke.spec.ts` against the public API: the API answers, the captured `t03a` message and its attachment metadata (no download), and a wrong password is rejected. It is **not** a required check (it needs the host to be up) and skips with a notice when the secrets are missing. Local run: `cd e2e-helper && set -a && . ../secrets/ci.env && set +a && MAILPIT_URL=https://<host>/admin MAILPIT_USER=$MAILPIT_CI_USER MAILPIT_PASSWORD=$MAILPIT_CI_PASSWORD npx playwright test --config playwright.live.config.ts`. Mailpit has no per-user permissions, so `ci` can do everything `root` can; the spec only reads.
+Upload the two values from `secrets/ci.env` as the repository secrets `MAILPIT_CI_USER` and `MAILPIT_CI_PASSWORD`. The `live-smoke` workflow (manual dispatch only since cloud mode; it needs the laptop Mailpit) then runs `e2e-helper/live-smoke.spec.ts` against the public API: the API answers, the captured `t03a` message and its attachment metadata (no download), and a wrong password is rejected. It is **not** a required check (it needs the host to be up) and skips with a notice when the secrets are missing. Local run: `cd e2e-helper && set -a && . ../secrets/ci.env && set +a && MAILPIT_URL=https://<host>/admin MAILPIT_USER=$MAILPIT_CI_USER MAILPIT_PASSWORD=$MAILPIT_CI_PASSWORD npx playwright test --config playwright.live.config.ts`. Mailpit has no per-user permissions, so `ci` can do everything `root` can; the spec only reads.
 
 ## Mail quota (janitor)
 
