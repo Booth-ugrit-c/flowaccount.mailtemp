@@ -25,10 +25,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            worker/package-lock.json
-            cloud/package-lock.json
-            e2e-helper/package-lock.json
+          cache-dependency-path: e2e-helper/package-lock.json
 
       - name: Generate local secrets
         run: bash setup.sh
@@ -38,35 +35,13 @@ jobs:
 
       - name: Syntax check
         run: |
-          find bridge inbox janitor status-worker worker cloud tools \
+          find bridge inbox janitor tools \
             \( -name node_modules -o -name .wrangler -o -name dist \) -prune -o \
             \( -name '*.js' -o -name '*.mjs' \) -print0 |
             xargs -0 -n1 node --check
 
-      - name: Status worker tests
-        run: node --test "status-worker/test/*.test.js"
-
-      - name: Worker tests
-        run: node --test "worker/test/*.test.js"
-
       - name: Inbox unit tests
         run: node --test "inbox/test/*.test.mjs"
-
-      - name: Cloud unit tests
-        run: node --test "cloud/test/*.test.mjs"
-
-      - name: Worker bundle (dry run, no Cloudflare credentials)
-        working-directory: worker
-        run: |
-          npm ci
-          npx wrangler deploy --dry-run --outdir dist
-
-      - name: Cloud worker bundle (dry run) and local integration
-        working-directory: cloud
-        run: |
-          npm ci
-          npx wrangler deploy --dry-run --outdir dist
-          node test/integration.mjs
 
   test:
     name: test
@@ -111,12 +86,6 @@ jobs:
           path=$(node -p "require('playwright-core').chromium.executablePath()")
           test -x "$path"
           echo "CHROMIUM_PATH=$path" >> "$GITHUB_ENV"
-
-      - name: Cloud admin browser check
-        working-directory: cloud
-        run: |
-          npm ci
-          node test/admin-browser.mjs
 
       - name: Isolation tests
         run: bash inbox/test/isolation.sh
